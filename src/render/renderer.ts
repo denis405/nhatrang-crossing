@@ -60,7 +60,19 @@ const SHOP_COLORS = ['#e76f51', '#2a9d8f', '#e9c46a', '#f4a261', '#8ecae6', '#ff
 const SIGN_COLORS = ['#d62828', '#f77f00', '#003049', '#fcbf49', '#06d6a0', '#ef476f', '#118ab2'];
 const ROOF_COLORS = ['#9c6644', '#b5838d', '#7f8c8d', '#a3a3a3', '#bc6c25', '#8d99ae'];
 
-function shopRow(ctx: Ctx, rng: Rng, edgeY: number, facing: 1 | -1) {
+/** Length of a headlight cone, px. */
+const HEADLIGHT_PX = 16;
+
+/** A glowing spot in background coordinates (shop signs come alive in the evening). */
+interface Light {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string;
+}
+
+function shopRow(ctx: Ctx, rng: Rng, edgeY: number, facing: 1 | -1, lights: Light[]) {
   // facing 1: facades sit above edgeY (top side of the street); -1: below it.
   let x = -4;
   while (x < WORLD_W) {
@@ -82,6 +94,7 @@ function shopRow(ctx: Ctx, rng: Rng, edgeY: number, facing: 1 | -1) {
     const sy = facing === 1 ? y0 + 6 : y0 + 14;
     const sc = SIGN_COLORS[Math.floor(rand(rng) * SIGN_COLORS.length)];
     r(ctx, x + 3, sy, w - 6, 8, sc);
+    lights.push({ x: x + 3, y: sy, w: w - 6, h: 8, color: sc });
     for (let i = x + 5; i < x + w - 6; i += 3) r(ctx, i, sy + 3, 2, 2, rand(rng) < 0.7 ? '#fff' : '#ffe66d');
     // water tank on the roof
     if (rand(rng) < 0.5) {
@@ -139,7 +152,7 @@ function sidewalk(ctx: Ctx, rng: Rng, p: Palette, y0: number, h: number, roadSid
   }
 }
 
-function median(ctx: Ctx, rng: Rng, p: Palette, y0: number, h: number) {
+function median(ctx: Ctx, rng: Rng, p: Palette, y0: number, h: number, hedges = true) {
   r(ctx, 0, y0, WORLD_W, h, p.grass);
   for (let i = 0; i < 40; i++) r(ctx, Math.floor(rand(rng) * WORLD_W), y0 + 2 + Math.floor(rand(rng) * (h - 4)), 2, 1, p.grassDark);
   for (let x = 0; x < WORLD_W; x += 4) {
@@ -147,7 +160,7 @@ function median(ctx: Ctx, rng: Rng, p: Palette, y0: number, h: number) {
     r(ctx, x, y0, 4, 1, c);
     r(ctx, x, y0 + h - 1, 4, 1, c);
   }
-  for (let x = 10; x < WORLD_W; x += 34) {
+  for (let x = 10; hedges && x < WORLD_W; x += 34) {
     if (Math.abs(x - PED_X) < 12) continue;
     r(ctx, x, y0 + 3, 5, h - 6, '#2d6a4f');
     r(ctx, x + 1, y0 + 2, 3, 1, '#40916c');
@@ -162,7 +175,79 @@ function asphalt(ctx: Ctx, rng: Rng, p: Palette, y0: number, h: number) {
   }
 }
 
-function buildBackground(level: Level, layout: Layout, seed: number): HTMLCanvasElement {
+/** A palm seen from above: a star of fronds over its own shadow. */
+function palm(ctx: Ctx, rng: Rng, cx: number, cy: number) {
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(cx + 3, cy + 3, 8, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  const fronds = 7;
+  const turn = rand(rng) * Math.PI;
+  for (let i = 0; i < fronds; i++) {
+    const a = turn + (i * Math.PI * 2) / fronds;
+    for (let d = 1; d <= 8; d++) {
+      const x = Math.round(cx + Math.cos(a) * d);
+      const y = Math.round(cy + Math.sin(a) * d * 0.8);
+      r(ctx, x, y, d < 7 ? 2 : 1, 1, d % 3 ? '#2d6a4f' : '#52b788');
+    }
+  }
+  r(ctx, cx - 1, cy - 1, 3, 3, '#7f5539');
+  r(ctx, cx - 1, cy - 1, 1, 1, '#b08968');
+}
+
+function palms(ctx: Ctx, rng: Rng, y0: number, h: number, count: number) {
+  for (let i = 0; i < count; i++) {
+    let x = 12 + Math.floor(rand(rng) * (WORLD_W - 24));
+    // keep the walking column clear
+    if (Math.abs(x - PED_X) < 18) x = x < PED_X ? x - 22 : x + 22;
+    palm(ctx, rng, x, y0 + Math.round(h / 2));
+  }
+}
+
+/** A filled ellipse on whole pixels, so shapes stay as crisp as the rest of the art. */
+function blob(ctx: Ctx, cx: number, cy: number, rx: number, ry: number, color: string, angle = 0) {
+  ctx.fillStyle = color;
+  const c = Math.cos(angle);
+  const sn = Math.sin(angle);
+  const m = Math.ceil(Math.max(rx, ry));
+  for (let y = -m; y <= m; y++)
+    for (let x = -m; x <= m; x++) {
+      const u = (x * c + y * sn) / rx;
+      const v = (-x * sn + y * c) / ry;
+      if (u * u + v * v <= 1) ctx.fillRect(Math.round(cx + x), Math.round(cy + y), 1, 1);
+    }
+}
+
+/** The Tram Huong tower: a lotus in white and pink in the middle of the ring, with flower beds around. */
+function tower(ctx: Ctx, cx: number, cy: number, size: number) {
+  blob(ctx, cx + 3, cy + 3, size, size, 'rgba(0,0,0,0.3)');
+  blob(ctx, cx, cy, size, size, '#d8d2c4');
+  blob(ctx, cx, cy, size - 2, size - 2, '#f1ede4');
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4;
+    const px = cx + Math.cos(a) * size * 0.45;
+    const py = cy + Math.sin(a) * size * 0.45;
+    blob(ctx, px, py, size * 0.34, size * 0.2, i % 2 ? '#f4acb7' : '#ffe5ec', a);
+  }
+  blob(ctx, cx, cy, size * 0.32, size * 0.32, '#fbf8f1');
+  blob(ctx, cx, cy, size * 0.14, size * 0.14, '#e9c46a');
+}
+
+function flowerBed(ctx: Ctx, rng: Rng, cx: number, cy: number, rad: number) {
+  const colors = ['#ef476f', '#ffd166', '#f78c6b', '#ffffff'];
+  for (let i = 0; i < 60; i++) {
+    const a = rand(rng) * Math.PI * 2;
+    const d = rad + (rand(rng) - 0.5) * 4;
+    r(ctx, Math.round(cx + Math.cos(a) * d), Math.round(cy + Math.sin(a) * d * 0.55), 1, 1, colors[i % colors.length]);
+  }
+}
+
+interface Background {
+  canvas: HTMLCanvasElement;
+  lights: Light[];
+}
+
+function buildBackground(level: Level, layout: Layout, seed: number): Background {
   const c = document.createElement('canvas');
   c.width = WORLD_W;
   c.height = layout.height + PAD * 2;
@@ -177,14 +262,33 @@ function buildBackground(level: Level, layout: Layout, seed: number): HTMLCanvas
   const ext = 10;
   sidewalk(ctx, rng, p, PAD + top.top - ext, top.bottom - top.top + ext, 'bottom');
   sidewalk(ctx, rng, p, PAD + bottom.top, bottom.bottom - bottom.top + ext, 'top');
-  shopRow(ctx, rng, PAD + top.top - ext, 1);
-  shopRow(ctx, rng, PAD + bottom.bottom + ext, -1);
+  const lights: Light[] = [];
+  shopRow(ctx, rng, PAD + top.top - ext, 1, lights);
+  shopRow(ctx, rng, PAD + bottom.bottom + ext, -1, lights);
+  const decor = level.decor ?? {};
+  if (decor.palms) {
+    palms(ctx, rng, PAD + top.top - ext, top.bottom - top.top, 3);
+    palms(ctx, rng, PAD + bottom.top, bottom.bottom - bottom.top, 3);
+  }
 
+  const medians = strips.filter((s) => s.kind === 'median');
+  const widest = medians.reduce<(typeof medians)[number] | null>((a, m) => (!a || m.bottom - m.top > a.bottom - a.top ? m : a), null);
   for (const s of strips) {
     const y0 = PAD + s.top;
     const h = s.bottom - s.top;
-    if (s.kind === 'median') median(ctx, rng, p, y0, h);
+    if (s.kind === 'median') median(ctx, rng, p, y0, h, !(decor.tower && s === widest));
     else if (s.kind === 'bike' || s.kind === 'car') asphalt(ctx, rng, p, y0, h);
+  }
+  if (decor.tower && widest) {
+    const h = widest.bottom - widest.top;
+    const cy = PAD + widest.top + h / 2;
+    // Off the walking column, but inside the view.
+    const cx = PED_X + 38;
+    flowerBed(ctx, rng, cx, cy, h * 0.75);
+    flowerBed(ctx, rng, PED_X - 44, cy, h * 0.4);
+    tower(ctx, cx, cy, Math.floor(h / 2) - 4);
+  } else if (decor.palms) {
+    for (const m of medians) if (m.bottom - m.top >= 20) palms(ctx, rng, PAD + m.top, m.bottom - m.top, 2);
   }
 
   // Lane markings between neighbouring traffic strips.
@@ -212,11 +316,7 @@ function buildBackground(level: Level, layout: Layout, seed: number): HTMLCanvas
   }
   ctx.globalAlpha = 1;
 
-  if (p.tint) {
-    ctx.fillStyle = p.tint;
-    ctx.fillRect(0, 0, c.width, c.height);
-  }
-  return c;
+  return { canvas: c, lights };
 }
 
 export interface Insets {
@@ -230,7 +330,7 @@ export class Renderer {
   private ctx: Ctx;
   private buf: HTMLCanvasElement;
   private bctx: Ctx;
-  private bg: HTMLCanvasElement | null = null;
+  private bg: Background | null = null;
   /** The level the cached background was drawn for (endless streets share ids across runs). */
   private bgFor: Level | null = null;
   /** Logical height of the view. */
@@ -260,6 +360,42 @@ export class Renderer {
     this.buf.width = VIEW_W;
     this.buf.height = this.h;
     this.camReady = false;
+  }
+
+  /** Glowing shop signs, headlight cones and tail lights, added on top of the dusk tint. */
+  private drawLights(b: Ctx, vs: World['vehicles'], cam: number, sx: number, sy: number, time: number): void {
+    b.save();
+    b.globalCompositeOperation = 'lighter';
+    const ox = -VIEW_LEFT + sx;
+    const oy = -cam - PAD + sy;
+    for (const l of this.bg!.lights) {
+      const y = l.y + oy;
+      if (y > this.h || y + l.h < 0) continue;
+      // a slow neon flicker, different for each sign
+      b.globalAlpha = 0.32 + 0.06 * Math.sin(time * 3 + l.x * 0.7);
+      b.fillStyle = l.color;
+      b.fillRect(l.x + ox - 1, y - 1, l.w + 2, l.h + 2);
+    }
+    for (const v of vs) {
+      const spr = vehicleSprite(v);
+      const x = Math.round(v.x - VIEW_LEFT - spr.width / 2) + sx;
+      const y = Math.round(v.y - spr.height / 2) - cam + sy;
+      const front = v.dir > 0 ? x + spr.width : x;
+      const back = v.dir > 0 ? x - 1 : x + spr.width;
+      // a cone that widens and fades, one pixel column at a time
+      b.fillStyle = 'rgb(255, 214, 120)';
+      const mid = y + spr.height / 2;
+      for (let d = 0; d < HEADLIGHT_PX; d++) {
+        b.globalAlpha = 0.2 * (1 - d / HEADLIGHT_PX);
+        const half = Math.round(spr.height / 2 - 1.5 + d * 0.3);
+        b.fillRect(v.dir > 0 ? front + d : front - 1 - d, mid - half, 1, half * 2);
+      }
+      b.globalAlpha = 0.5;
+      b.fillStyle = 'rgb(255, 40, 40)';
+      b.fillRect(back, y + 1, 1, 1);
+      b.fillRect(back, y + spr.height - 2, 1, 1);
+    }
+    b.restore();
   }
 
   bump(): void {
@@ -309,7 +445,7 @@ export class Renderer {
     const cam = Math.round(this.camTop);
     b.fillStyle = '#2b2a33';
     b.fillRect(0, 0, VIEW_W, this.h);
-    b.drawImage(this.bg!, VIEW_LEFT, cam + PAD, VIEW_W, this.h, sx, sy, VIEW_W, this.h);
+    b.drawImage(this.bg!.canvas, VIEW_LEFT, cam + PAD, VIEW_W, this.h, sx, sy, VIEW_W, this.h);
 
     // vehicles, back to front
     const vs = [...w.vehicles].sort((a, c) => a.y - c.y);
@@ -324,11 +460,6 @@ export class Renderer {
         b.scale(-1, 1);
         b.drawImage(spr, 0, 0);
         b.restore();
-      }
-      if (level.palette === 'evening') {
-        b.fillStyle = 'rgba(255, 240, 170, 0.18)';
-        const fx = v.dir > 0 ? x + spr.width : x - 14;
-        b.fillRect(fx, y + 1, 14, spr.height - 2);
       }
     }
 
@@ -350,6 +481,14 @@ export class Renderer {
       }
     } else {
       b.drawImage(ps, px, py);
+    }
+
+    const tint = PALETTES[level.palette].tint;
+    if (tint) {
+      // Dusk falls on everything, then the lights come on above it.
+      b.fillStyle = tint;
+      b.fillRect(0, 0, VIEW_W, this.h);
+      this.drawLights(b, vs, cam, sx, sy, time);
     }
 
     // present, nearest-neighbour

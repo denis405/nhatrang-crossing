@@ -29,6 +29,16 @@ const SKIN = '#e8b98a';
 const TOURIST_SKIN = '#ffab91';
 const TIRE = '#141418';
 const SHADOW = 'rgba(0,0,0,0.28)';
+const TREAD = '#4a4a55';
+
+/** Wheel frame (0/1) for the sprite being drawn: a tread pixel hops along each tyre. */
+let wheel = 0;
+
+/** A tyre seen from above, with one tread pixel that moves as the wheel turns. */
+function tire(ctx: Ctx, x: number, y: number, w: number) {
+  r(ctx, x, y, w, 1, TIRE);
+  r(ctx, x + (wheel % 2 ? w - 1 : 0), y, 1, 1, TREAD);
+}
 
 function rider(ctx: Ctx, rx: number, cy: number, helmet: string, shirt: string, handX: number, skin = SKIN, hair = false) {
   r(ctx, rx - 1, cy - 2, 3, 5, shirt);
@@ -55,8 +65,8 @@ function conicalHat(ctx: Ctx, cx: number, cy: number) {
 function scooter(ctx: Ctx, len: number, h: number, body: string, from = 2) {
   const cy = Math.floor(h / 2);
   r(ctx, from, cy - 1 + 1, len - from, 3, SHADOW);
-  r(ctx, 0, cy, 2, 1, TIRE);
-  r(ctx, len - 2, cy, 2, 1, TIRE);
+  tire(ctx, 0, cy, 2);
+  tire(ctx, len - 2, cy, 2);
   r(ctx, from, cy - 1, len - from - 3, 3, body);
   r(ctx, len - 4, cy - 1, 2, 3, body);
   r(ctx, len - 3, cy, 1, 1, '#fff6b0');
@@ -137,10 +147,10 @@ function drawVehicle(kind: VehicleKind, look: number): HTMLCanvasElement {
       const [c, ctx] = makeCanvas(26, 12);
       const col = pickc(CARS, 1);
       r(ctx, 2, 1, 24, 11, SHADOW);
-      r(ctx, 4, 0, 4, 1, TIRE);
-      r(ctx, 18, 0, 4, 1, TIRE);
-      r(ctx, 4, 11, 4, 1, TIRE);
-      r(ctx, 18, 11, 4, 1, TIRE);
+      tire(ctx, 4, 0, 4);
+      tire(ctx, 18, 0, 4);
+      tire(ctx, 4, 11, 4);
+      tire(ctx, 18, 11, 4);
       r(ctx, 1, 1, 24, 10, col);
       r(ctx, 0, 2, 26, 8, col);
       r(ctx, 16, 2, 4, 8, '#1f2a3a'); // windshield
@@ -172,11 +182,13 @@ function drawVehicle(kind: VehicleKind, look: number): HTMLCanvasElement {
 
 const vehicleCache = new Map<string, HTMLCanvasElement>();
 
-export function vehicleSprite(v: Pick<Vehicle, 'kind' | 'look'>): HTMLCanvasElement {
+export function vehicleSprite(v: Pick<Vehicle, 'kind' | 'look' | 'x'>): HTMLCanvasElement {
   const variants = v.kind === 'bus' ? 1 : 8;
-  const key = `${v.kind}:${v.look % variants}`;
+  const frame = Math.floor(v.x / 3) & 1;
+  const key = `${v.kind}:${v.look % variants}:${frame}`;
   let s = vehicleCache.get(key);
   if (!s) {
+    wheel = frame;
     s = drawVehicle(v.kind, v.look % variants);
     vehicleCache.set(key, s);
   }
