@@ -17,16 +17,18 @@ export interface KindSpec {
   speedMul: number;
   /** Random lateral sway amplitude, px (tourists). */
   wobble: number;
+  /** Cars and buses: share of cruise speed they ease off to when someone is in their lane. */
+  brake: number;
 }
 
 export const KINDS: Record<VehicleKind, KindSpec> = {
-  bike: { len: 14, wid: 6, avoids: true, reaction: 0.3, steer: 24, margin: 3, speedMul: 1, wobble: 0 },
-  grab: { len: 14, wid: 6, avoids: true, reaction: 0.22, steer: 30, margin: 2.5, speedMul: 1.25, wobble: 0 },
-  family: { len: 16, wid: 8, avoids: true, reaction: 0.35, steer: 17, margin: 3, speedMul: 0.85, wobble: 0 },
-  cargo: { len: 17, wid: 11, avoids: true, reaction: 0.4, steer: 14, margin: 3, speedMul: 0.75, wobble: 0 },
-  tourist: { len: 14, wid: 6, avoids: true, reaction: 0.5, steer: 20, margin: 4, speedMul: 0.8, wobble: 2.5 },
-  car: { len: 26, wid: 12, avoids: false, reaction: 0, steer: 0, margin: 0, speedMul: 1, wobble: 0 },
-  bus: { len: 44, wid: 14, avoids: false, reaction: 0, steer: 0, margin: 0, speedMul: 0.8, wobble: 0 },
+  bike: { len: 14, wid: 6, avoids: true, reaction: 0.3, steer: 24, margin: 3, speedMul: 1, wobble: 0, brake: 1 },
+  grab: { len: 14, wid: 6, avoids: true, reaction: 0.22, steer: 30, margin: 2.5, speedMul: 1.25, wobble: 0, brake: 1 },
+  family: { len: 16, wid: 8, avoids: true, reaction: 0.35, steer: 17, margin: 3, speedMul: 0.85, wobble: 0, brake: 1 },
+  cargo: { len: 17, wid: 11, avoids: true, reaction: 0.4, steer: 14, margin: 3, speedMul: 0.75, wobble: 0, brake: 1 },
+  tourist: { len: 14, wid: 6, avoids: true, reaction: 0.5, steer: 20, margin: 4, speedMul: 0.8, wobble: 2.5, brake: 1 },
+  car: { len: 26, wid: 12, avoids: false, reaction: 0.45, steer: 0, margin: 0, speedMul: 1, wobble: 0, brake: 0.55 },
+  bus: { len: 44, wid: 14, avoids: false, reaction: 0.55, steer: 0, margin: 0, speedMul: 0.8, wobble: 0, brake: 0.75 },
 };
 
 export interface Vehicle {
@@ -38,6 +40,9 @@ export interface Vehicle {
   y: number;
   /** Lane centre the driver returns to. */
   homeY: number;
+  /** Lane the driver is slowly moving over to, and how fast (px/s, 0 = stays in lane). */
+  goalY: number;
+  drift: number;
   /** Allowed range for the vehicle centre (its zone of the road). */
   minY: number;
   maxY: number;

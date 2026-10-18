@@ -11,7 +11,7 @@ import {
   type Rhythm,
   type Verdict,
 } from './rhythm';
-import { ACCEL, hasPassed, hits, KINDS, lateralGap, steer, type Perception, type Vehicle, type VehicleKind } from './vehicles';
+import { ACCEL, frontGap, hasPassed, hits, KINDS, lateralGap, steer, type Perception, type Vehicle, type VehicleKind } from './vehicles';
 
 interface Snapshot {
   t: number;
@@ -60,6 +60,10 @@ export interface TickEvents {
 const PREWARM_SECONDS = 10;
 const NEAR_MISS_GAP = 3;
 const HONK_TIME = 0.9;
+/** Cars ease off when someone is this close (seconds) ahead in their lane... */
+const CAR_BRAKE_TC = 1.2;
+/** ...counting a few px beyond the car's width as "in the lane". */
+const CAR_SEE_PX = 2;
 
 export function createWorld(level: Level, seed: number, layout = computeLayout(level)): World {
   const w: World = {
@@ -99,7 +103,14 @@ function perceive(w: World, reaction: number): Perception {
   return { y: s.y - speed * (w.t - s.t), speed };
 }
 
-function spawn(w: World, s: StripGeom): void {
+/** Centres of the lanes that share a bike's zone, so a lane change ends mid-lane. */
+function zoneLanes(layout: Layout, s: StripGeom): number[] {
+  return layout.strips
+    .filter((o) => o.kind === 'bike' && o.top >= s.zoneTop && o.bottom <= s.zoneBottom)
+    .map((o) => (o.top + o.bottom) / 2);
+}
+
+function spawn(w: World, s: StripGeom, layout: Layout): void {
   const spec = s.spawn!;
   const kind = pickWeighted(w.rng, spec.kinds);
   const k = KINDS[kind];
@@ -121,6 +132,13 @@ function spawn(w: World, s: StripGeom): void {
   const zoneBottom = avoids ? s.zoneBottom : s.bottom;
   const homeY = laneMid + (avoids ? (rand(w.rng) - 0.5) * 4 : 0);
   const baseV = range(w.rng, spec.speed) * k.speedMul;
+  let goalY = homeY;
+  let drift = 0;
+  if (avoids && spec.drift) {
+    const lanes = zoneLanes(layout, s);
+    goalY = lanes[Math.floor(rand(w.rng) * lanes.length)];
+    drift = spec.drift;
+  }
   w.vehicles.push({
     id: w.nextId++,
     kind,
@@ -129,6 +147,8 @@ function spawn(w: World, s: StripGeom): void {
     x,
     y: homeY,
     homeY,
+    goalY,
+    drift,
     minY: zoneTop + k.wid / 2 - slack,
     maxY: zoneBottom - k.wid / 2 + slack,
     baseV,
@@ -173,13 +193,23 @@ export function tick(w: World, level: Level, layout: Layout, taps: number): Tick
   for (const s of layout.strips) {
     if (!s.spawn) continue;
     w.spawnIn[s.index] -= DT;
-    if (w.spawnIn[s.index] <= 0) spawn(w, s);
+    if (w.spawnIn[s.index] <= 0) spawn(w, s, layout);
   }
 
   const onRoad = !isSafe(pedStrip(w, layout).kind);
   for (const v of w.vehicles) {
     const k = KINDS[v.kind];
     let limit = v.baseV;
+    if (v.drift) {
+      const d = v.goalY - v.homeY;
+      v.homeY += Math.sign(d) * Math.min(Math.abs(d), v.drift * DT);
+    }
+    if (!k.avoids && !v.passed && onRoad) {
+      // Cars don't swerve, but a driver who sees someone in the lane eases off.
+      const p = perceive(w, k.reaction * level.drivers.reaction);
+      const inLane = Math.abs(p.y - v.y) < k.wid / 2 + PED_R + CAR_SEE_PX;
+      if (inLane && frontGap(v) / v.v < CAR_BRAKE_TC) limit *= k.brake;
+    }
     if (k.avoids) {
       const res = steer(v, perceive(w, k.reaction * level.drivers.reaction), w.t, DT, level.drivers.margin);
       limit *= res.speedMul;

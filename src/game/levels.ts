@@ -8,6 +8,8 @@ export interface SpawnSpec {
   /** Base speed, px/s (multiplied by the kind's speedMul). */
   speed: [number, number];
   kinds: Partial<Record<VehicleKind, number>>;
+  /** Bikes drift to another lane of their zone at this lateral speed, px/s (lane changes). */
+  drift?: number;
 }
 
 export interface Strip {
