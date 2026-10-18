@@ -1,0 +1,11 @@
+{
+  "name": "Перейди дорогу в Нячанге",
+  "short_name": "Перейди дорогу",
+  "description": "Иди медленно и ровно, и байки тебя объедут.",
+  "lang": "ru",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1d1b2a",
+  "theme_color": "#1d1b2a"
+}

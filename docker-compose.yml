@@ -1,0 +1,32 @@
+services:
+  # Production: static build behind nginx. On the VPS: `docker compose up -d --build`.
+  web:
+    build:
+      context: .
+      target: prod
+    image: nhatrang-crossing:latest
+    ports:
+      - "${PORT:-8080}:80"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Development (profile "dev"): vite with hot reload, also used for tests and sim.
+  #   docker compose --profile dev up dev
+  #   docker compose run --rm dev npm test
+  dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./:/app
+      - node_modules:/app/node_modules
+
+volumes:
+  node_modules:
