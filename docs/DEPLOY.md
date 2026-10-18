@@ -193,6 +193,6 @@ docker image prune -f && docker builder prune -f --filter until=168h
 ## Чек-лист перед публичным запуском
 
 - [ ] HTTPS и домен.
-- [ ] Иконки PWA и `apple-touch-icon` (пока не сделаны, см. [ROADMAP.md](ROADMAP.md)).
+- [x] Иконки PWA и `apple-touch-icon` (`public/icons`, генерирует `npm run icons`).
 - [ ] Проверка на реальных iPhone и Android: звук, тапы, safe-area, 60 fps.
 - [ ] Мониторинг `/healthz`.
