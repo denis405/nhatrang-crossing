@@ -20,6 +20,13 @@ export interface Strip {
   spawn?: SpawnSpec;
 }
 
+export interface Decor {
+  /** Palms along the sidewalks (the seafront). */
+  palms?: boolean;
+  /** The Tram Huong tower on the widest median, ring markings on the road. */
+  tower?: boolean;
+}
+
 export interface Level {
   id: string;
   name: string;
@@ -34,12 +41,16 @@ export interface Level {
   drivers: { margin: number; reaction: number };
   metronome: boolean;
   palette: 'day' | 'evening';
+  /** Scenery hints for the renderer; no effect on the simulation. */
+  decor?: Decor;
   /** Bottom (start) to top (finish). */
   strips: Strip[];
 }
 
 const LANE = 16;
 const CAR_LANE = 18;
+
+const DRIFT = 5;
 
 const bikes = (dir: 1 | -1, spawn: SpawnSpec): Strip => ({ kind: 'bike', h: LANE, dir, spawn });
 const cars = (dir: 1 | -1, spawn: SpawnSpec): Strip => ({ kind: 'car', h: CAR_LANE, dir, spawn });
@@ -106,6 +117,99 @@ export const LEVELS: Level[] = [
       cars(-1, { every: [2.5, 5.0], speed: [44, 56], kinds: { car: 4, bus: 1 } }),
       bikes(-1, { every: [1.0, 2.2], speed: [42, 54], kinds: { bike: 5, grab: 2, tourist: 1 } }),
       bikes(-1, { every: [0.9, 2.0], speed: [40, 52], kinds: { bike: 5, grab: 2, family: 2, cargo: 1 } }),
+      sidewalk(),
+    ],
+  },
+  {
+    id: 'hungvuong',
+    name: 'Хунг Выонг',
+    subtitle: 'Центр. Машины в обе стороны, а островка нет.',
+    tempo: 0.46,
+    tolerance: 0.22,
+    adapt: 0.25,
+    drivers: { margin: -0.5, reaction: 1.2 },
+    metronome: false,
+    palette: 'day',
+    strips: [
+      sidewalk(),
+      bikes(1, { every: [1.0, 2.2], speed: [40, 52], kinds: { bike: 5, grab: 2, family: 1, cargo: 1 } }),
+      bikes(1, { every: [1.1, 2.4], speed: [42, 54], kinds: { bike: 5, grab: 2, tourist: 1 } }),
+      cars(1, { every: [3.5, 6.5], speed: [44, 56], kinds: { car: 5, bus: 1 } }),
+      cars(-1, { every: [3.5, 6.5], speed: [44, 56], kinds: { car: 5, bus: 1 } }),
+      bikes(-1, { every: [1.1, 2.4], speed: [42, 54], kinds: { bike: 5, grab: 2, tourist: 1 } }),
+      bikes(-1, { every: [1.0, 2.2], speed: [40, 52], kinds: { bike: 5, grab: 2, family: 1, cargo: 1 } }),
+      sidewalk(),
+    ],
+  },
+  {
+    id: 'lethanhton',
+    name: 'Ле Тхань Тон',
+    subtitle: 'Одностороннее движение. Все едут в одну сторону и перестраиваются.',
+    tempo: 0.46,
+    tolerance: 0.22,
+    adapt: 0.1,
+    drivers: { margin: -1, reaction: 1.3 },
+    metronome: false,
+    palette: 'day',
+    strips: [
+      sidewalk(),
+      ...[0, 1, 2, 3, 4].map((i) =>
+        bikes(-1, {
+          every: i % 2 ? [0.8, 1.7] : [0.7, 1.6],
+          speed: [42, 56],
+          kinds: { bike: 4, grab: 4, cargo: 1, tourist: 2 },
+          drift: DRIFT * 1.4,
+        }),
+      ),
+      sidewalk(),
+    ],
+  },
+  {
+    id: 'tranphu-evening',
+    name: 'Чан Фу вечером',
+    subtitle: 'Час пик на набережной. Темнеет, все едут домой.',
+    tempo: 0.45,
+    tolerance: 0.22,
+    adapt: 0.25,
+    drivers: { margin: -0.5, reaction: 1.25 },
+    metronome: false,
+    palette: 'evening',
+    decor: { palms: true },
+    strips: [
+      sidewalk(),
+      bikes(1, { every: [0.8, 1.8], speed: [40, 52], kinds: { bike: 5, grab: 2, family: 2, cargo: 1 } }),
+      bikes(1, { every: [0.8, 1.9], speed: [42, 54], kinds: { bike: 5, grab: 3, family: 1 } }),
+      bikes(1, { every: [0.9, 2.0], speed: [42, 54], kinds: { bike: 5, grab: 2, tourist: 1 }, drift: DRIFT }),
+      cars(1, { every: [2.4, 4.8], speed: [44, 56], kinds: { car: 4, bus: 1 } }),
+      median(),
+      cars(-1, { every: [2.4, 4.8], speed: [44, 56], kinds: { car: 4, bus: 1 } }),
+      bikes(-1, { every: [0.9, 2.0], speed: [42, 54], kinds: { bike: 5, grab: 2, tourist: 1 }, drift: DRIFT }),
+      bikes(-1, { every: [0.8, 1.9], speed: [42, 54], kinds: { bike: 5, grab: 3, family: 1 } }),
+      bikes(-1, { every: [0.8, 1.8], speed: [40, 52], kinds: { bike: 5, grab: 2, family: 2, cargo: 1 } }),
+      sidewalk(),
+    ],
+  },
+  {
+    id: 'tramhuong',
+    name: 'Круг у башни Трам Хыонг',
+    subtitle: 'Главный круг города. Все въезжают, съезжают и никто не уступает.',
+    tempo: 0.45,
+    tolerance: 0.22,
+    adapt: 0.25,
+    drivers: { margin: -0.75, reaction: 1.3 },
+    metronome: false,
+    palette: 'day',
+    decor: { palms: true, tower: true },
+    strips: [
+      sidewalk(),
+      bikes(1, { every: [0.8, 1.8], speed: [38, 50], kinds: { bike: 4, grab: 2, family: 2, cargo: 1, tourist: 1 }, drift: DRIFT * 1.6 }),
+      bikes(1, { every: [0.9, 2.0], speed: [40, 52], kinds: { bike: 4, grab: 3, tourist: 1 }, drift: DRIFT * 1.6 }),
+      cars(1, { every: [2.6, 5.0], speed: [40, 50], kinds: { car: 4, bus: 1 } }),
+      median(44),
+      cars(-1, { every: [2.6, 5.0], speed: [40, 50], kinds: { car: 4, bus: 1 } }),
+      bikes(-1, { every: [0.9, 2.0], speed: [40, 52], kinds: { bike: 4, grab: 3, tourist: 1 }, drift: DRIFT * 1.6 }),
+      bikes(-1, { every: [0.8, 1.8], speed: [38, 50], kinds: { bike: 4, grab: 2, family: 2, cargo: 1, tourist: 1 }, drift: DRIFT * 1.6 }),
+      bikes(-1, { every: [0.9, 2.0], speed: [40, 52], kinds: { bike: 4, grab: 2, tourist: 2 }, drift: DRIFT * 1.6 }),
       sidewalk(),
     ],
   },

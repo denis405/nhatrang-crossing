@@ -9,10 +9,10 @@ const seeds = Number(process.argv[2] ?? 60);
 const pad = (s: string, n: number) => s.padEnd(n);
 
 console.log(`seeds per cell: ${seeds}\n`);
-console.log(pad('уровень', 22) + Object.values(BOTS).map((b) => pad(b.name, 18)).join(''));
+console.log(pad('уровень', 26) + Object.values(BOTS).map((b) => pad(b.name, 18)).join(''));
 
 for (const level of LEVELS) {
-  let row = pad(level.name, 22);
+  let row = pad(level.name, 26);
   const reasons: Record<string, number> = {};
   for (const style of Object.values(BOTS)) {
     let won = 0;
@@ -32,5 +32,5 @@ for (const level of LEVELS) {
     row += pad(`${pct}% ${avgT}s nm${(nm / seeds).toFixed(1)}`, 18);
   }
   console.log(row);
-  console.log(pad('', 22) + 'смерти: ' + JSON.stringify(reasons));
+  console.log(pad('', 26) + 'смерти: ' + JSON.stringify(reasons));
 }
