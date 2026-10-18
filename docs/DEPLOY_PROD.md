@@ -10,14 +10,16 @@
 |---|---|
 | IP | `185.87.51.137` |
 | Хост | `vds3079971.my-ihor.ru` |
-| Игра | http://185.87.51.137/ |
+| Игра | http://185.87.51.137/ или http://185-87-51-137.sslip.io/ (HTTPS — см. п. 6 ниже) |
 | Healthcheck | http://185.87.51.137/healthz → `ok` |
 | ОС | Ubuntu 24.04, ядро 6.8, amd64 |
 | Ресурсы | ≈ 700 МБ RAM, диск 8.7 ГБ (занято ≈ 27 %) |
 | Docker | 29.1.3, пакет `docker.io` из Ubuntu |
 | Вход | `ssh root@185.87.51.137` (пароль в репозиторий не кладём) |
 | Код на сервере | `/opt/frogger` |
-| Контейнер | `frogger`, образ `nhatrang-crossing:latest`, порт 80 → 80 |
+| Контейнер игры | `frogger`, образ `nhatrang-crossing:latest`, сеть `web`, наружу порт не публикует |
+| Прокси | `caddy` (образ `caddy:2.10-alpine`), порты 80 и 443, конфиг `/opt/caddy/Caddyfile` |
+| Домен для HTTPS | `185-87-51-137.sslip.io` (бесплатный DNS sslip.io, указывает на IP сервера) |
 
 ## Особенности сервера (важно)
 
@@ -64,6 +66,34 @@ RUN npx vitest run --testTimeout=120000 && npm run build
 
 Код заливается архивом через `tar` поверх SSH.
 
+### 5. Из-за рубежа сайт открывается не везде (не решено)
+
+Проверка 18.10.2026 через check-host.net: HTTP-запрос прошёл только у 14 точек из 40 (Россия, Казахстан, Иран, Гонконг, Австралия, часть Европы и США). У остальных 26 (Германия, Франция, Великобритания, Нидерланды, Польша, Турция, Индия, Индонезия, Япония, Бразилия, Канада и другие) — `Connection timed out`. При этом ping и TCP-подключение к портам 22, 80 и 443 проходят почти отовсюду.
+
+Запись трафика (`tcpdump`) на сервере показала: от «плохих» клиентов приходит только SYN, сервер отвечает SYN-ACK, а дальнейшие пакеты клиента (ACK, сам HTTP-запрос) до сервера не доходят. То есть трафик режется по дороге — у провайдера или на магистрали, — а не на сервере: фаервол на сервере пустой, маршрутизация обычная. Затронуты одинаково HTTP, HTTPS и даже DNS.
+
+Отсюда же «у некоторых не открывается». HTTPS это не лечит. Варианты решения:
+
+- перенести игру на хостинг вне РФ, ближе к игрокам (Сингапур, Гонконг, Вьетнам — см. [DEPLOY.md](DEPLOY.md)): обычный VPS или бесплатный статический хостинг (Cloudflare Pages, GitHub Pages, Netlify), где HTTPS включается сам;
+- спросить провайдера (my-ihor.ru), не фильтруют ли они входящий трафик из-за рубежа.
+
+### 6. HTTPS: Caddy готов, сертификата пока нет
+
+Перед игрой стоит Caddy. Он должен получать и продлевать сертификат сам, но:
+
+- **Let's Encrypt** с сервера недоступен (`acme-v02.api.letsencrypt.org` не отвечает). Получить сертификат LE с мака тоже не вышло: LE проверяет домен из нескольких регионов, и часть проверок упирается в фильтрацию из п. 5.
+- Поэтому Caddy настроен на **ZeroSSL** (`acme.zerossl.com` с сервера доступен). Ключи EAB для ZeroSSL получены один раз с мака (`api.zerossl.com` с сервера заблокирован) и вписаны в `/opt/caddy/Caddyfile`. В репозиторий этот файл не кладём. 18.10.2026 ZeroSSL сам лежал (отвечал 502/504), так что сертификат не выдан. Caddy повторяет попытки автоматически; удастся ли ему пройти проверку при фильтрации из п. 5 — неизвестно.
+
+Пока сертификата нет, игра отдаётся по HTTP и по IP, и по домену, без редиректа. Когда сертификат появится, в логе Caddy будет `certificate obtained successfully`:
+
+```bash
+ssh root@185.87.51.137 'docker logs caddy 2>&1 | grep -E "obtained|error" | tail -5'
+```
+
+После этого в блоке `http://...` в `/opt/caddy/Caddyfile` можно заменить `reverse_proxy frogger:80` на `redir https://185-87-51-137.sslip.io{uri} permanent` и применить: `docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`.
+
+`/opt/caddy` смонтирован в контейнер целиком (не отдельным файлом), поэтому правки Caddyfile, в том числе через `sed -i`, видны после `caddy reload`. Сертификаты лежат в томе `caddy_data` — его не удалять.
+
 ## Обновление игры
 
 Все команды запускаются **на маке из корня проекта**.
@@ -93,10 +123,10 @@ ssh root@185.87.51.137 'cd /opt/frogger && sed -i "s/RUN npm test && npm run bui
 ### Шаг 4. Перезапустить контейнер
 
 ```bash
-ssh root@185.87.51.137 'docker rm -f frogger; docker run -d --name frogger -p 80:80 --restart unless-stopped --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 nhatrang-crossing:latest'
+ssh root@185.87.51.137 'docker rm -f frogger; docker run -d --name frogger --network web --restart unless-stopped --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 nhatrang-crossing:latest'
 ```
 
-Игра недоступна около секунды, пока стартует новый контейнер.
+Порт наружу контейнер игры не публикует: снаружи его видно только через Caddy (сеть `web`, имя `frogger`). Игра недоступна около секунды, пока стартует новый контейнер.
 
 ### Шаг 5. Проверить
 
@@ -117,7 +147,7 @@ ssh root@185.87.51.137 'docker ps --format "{{.Names}} {{.Status}} {{.Ports}}"'
 Если после обновления что-то сломалось, вернуть предыдущий образ (сохранённый на шаге 2):
 
 ```bash
-ssh root@185.87.51.137 'docker tag nhatrang-crossing:prev nhatrang-crossing:latest && docker rm -f frogger; docker run -d --name frogger -p 80:80 --restart unless-stopped --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 nhatrang-crossing:latest'
+ssh root@185.87.51.137 'docker tag nhatrang-crossing:prev nhatrang-crossing:latest && docker rm -f frogger; docker run -d --name frogger --network web --restart unless-stopped --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 nhatrang-crossing:latest'
 ```
 
 ## Повседневные команды
@@ -135,8 +165,16 @@ ssh root@185.87.51.137 'docker tag nhatrang-crossing:prev nhatrang-crossing:late
 | Ресурсы контейнера | `docker stats --no-stream frogger` |
 | Свободное место | `df -h /` |
 | Чистка старых слоёв | `docker image prune -f && docker builder prune -f` |
+| Логи Caddy | `docker logs --tail 50 caddy` |
+| Применить правки Caddyfile | `docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile` |
 
-Контейнер запущен с `--restart unless-stopped`: он поднимается сам после падения и после перезагрузки сервера. Логи ротируются: 3 файла по 10 МБ.
+Если контейнер Caddy пропал, он запускается так (сначала восстановить образ: `docker pull mirror.gcr.io/library/caddy:2.10-alpine && docker tag mirror.gcr.io/library/caddy:2.10-alpine caddy:2.10-alpine`):
+
+```bash
+docker network inspect web >/dev/null 2>&1 || docker network create web; docker run -d --name caddy --network web -p 80:80 -p 443:443 -p 443:443/udp -v /opt/caddy:/etc/caddy:ro -v caddy_data:/data -v caddy_config:/config --restart unless-stopped --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 caddy:2.10-alpine
+```
+
+Оба контейнера запущены с `--restart unless-stopped`: он поднимается сам после падения и после перезагрузки сервера. Логи ротируются: 3 файла по 10 МБ.
 
 ## Типовые проблемы
 
@@ -146,7 +184,9 @@ ssh root@185.87.51.137 'docker tag nhatrang-crossing:prev nhatrang-crossing:late
 | `npm error Exit handler never called!` на шаге `npm ci` | npm не может достучаться до реестра. Проверьте, что образ `node:22-alpine` собран с зеркалом (п. 2), и что зеркало доступно: `curl -sI https://registry.npmmirror.com/vite`. |
 | `Test timed out in 5000ms` | Не применена правка таймаута в `Dockerfile` (шаг 3). |
 | `docker: unknown command: docker compose` | На сервере нет Compose, используйте команды из этого документа. |
-| Сайт не открывается, контейнер работает | Проверьте, что порт 80 слушается: `ss -tlnp \| grep :80`, и что его не закрыл фаервол (`ufw` на сервере не настраивался). |
+| Сайт не открывается ни у кого, контейнеры работают | Проверьте, что Caddy слушает 80/443 (`ss -tlnp \| grep -E ':(80\|443) '`) и видит игру: `docker exec caddy wget -qO- http://frogger/healthz`. `ufw` на сервере не настраивался. |
+| Сайт не открывается у части пользователей (особенно за рубежом) | Сетевая фильтрация по дороге к серверу, см. «Особенности сервера», п. 5. На сервере это не исправить. |
+| `502` от Caddy | Контейнер `frogger` не запущен или не в сети `web`. Перезапустите его командой из шага 4. |
 | Сборка падает из-за нехватки памяти (`Killed`, OOM в `dmesg`) | На сервере ≈ 700 МБ RAM. Добавьте swap — команда есть в [DEPLOY.md](DEPLOY.md), раздел «Подготовка сервера». |
 
 ## Безопасность
@@ -158,5 +198,6 @@ ssh root@185.87.51.137 'docker tag nhatrang-crossing:prev nhatrang-crossing:late
   ```
 
   После проверки входа по ключу можно отключить вход по паролю (`PasswordAuthentication no` в `/etc/ssh/sshd_config`, затем `systemctl restart ssh`).
-- Фаервол (`ufw`) на сервере не включался. Наружу сейчас слушают только 22 (SSH) и 80 (игра).
-- HTTPS пока нет. Как его подключить, описано в [DEPLOY.md](DEPLOY.md), раздел «HTTPS». Вариант с Caddy требует Docker Compose, поэтому на этом сервере его придётся либо установить, либо запустить Caddy через `docker run`.
+- Фаервол (`ufw`) на сервере не включался. Наружу слушают 22 (SSH), 80 и 443 (Caddy).
+- HTTPS пока нет: Caddy стоит, но сертификат не выдан (см. «Особенности сервера», п. 6).
+- `/opt/caddy/Caddyfile` содержит ключи EAB для ZeroSSL. Файл доступен только root, в репозиторий его не кладём.

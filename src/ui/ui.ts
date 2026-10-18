@@ -1,5 +1,6 @@
 import type { Level } from '../game/levels';
 import type { DeathReason } from '../game/rhythm';
+import { share } from '../share';
 import type { Progress } from '../storage';
 import {
   DEATH_JOKES,
@@ -181,6 +182,17 @@ export class Screens {
     return s;
   }
 
+  /** "Share" that reports back on itself: shared, copied, or try again. */
+  private shareButton(text: string): HTMLButtonElement {
+    const b = this.button('Поделиться', () => {
+      void share(text).then((res) => {
+        if (res === 'copied') b.textContent = 'Ссылка скопирована ✓';
+        else if (res === 'shared') b.textContent = 'Поделился ✓';
+      });
+    }, true);
+    return b;
+  }
+
   private button(label: string, onClick: () => void, secondary = false): HTMLButtonElement {
     const b = el('button', secondary ? 'btn secondary' : 'btn', escape(label)) as HTMLButtonElement;
     b.addEventListener('click', onClick);
@@ -283,6 +295,7 @@ export class Screens {
     onRetry: () => void,
     onMenu: () => void,
     run?: EndlessRun,
+    shareText?: string,
   ): void {
     const card = el('div', 'card');
     card.append(el('h1', '', escape(DEATH_TITLES[reason])));
@@ -305,8 +318,9 @@ export class Screens {
         `Ровных шагов: ${Math.round(stats.accuracy * 100)}% · ${stats.time.toFixed(1)} с на дороге`,
       ),
       this.button('Ещё раз', onRetry),
-      this.button('Меню', onMenu, true),
     );
+    if (shareText) card.append(this.shareButton(shareText));
+    card.append(this.button('Меню', onMenu, true));
     this.mount(card);
   }
 
@@ -318,6 +332,7 @@ export class Screens {
     onNext: () => void,
     onRetry: () => void,
     onMenu: () => void,
+    shareText: string,
   ): void {
     const card = el('div', 'card');
     const starsHtml = [0, 1, 2].map((i) => `<span class="${i < stars ? '' : 'off'}">⭐</span>`).join('');
@@ -333,7 +348,7 @@ export class Screens {
       ),
     );
     if (hasNext) card.append(this.button('Следующая улица', onNext));
-    card.append(this.button('Ещё раз', onRetry, hasNext), this.button('Меню', onMenu, true));
+    card.append(this.button('Ещё раз', onRetry, hasNext), this.shareButton(shareText), this.button('Меню', onMenu, true));
     this.mount(card);
   }
 }

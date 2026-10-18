@@ -7,7 +7,7 @@ import { frontGap, KINDS } from './game/vehicles';
 import { accuracy, createWorld, pedStrip, tick, type TickEvents, type World } from './game/world';
 import { Renderer } from './render/renderer';
 import { loadProgress, saveProgress } from './storage';
-import { NEAR_MISS_WORDS, pick, TUTORIAL, VERDICT_WORDS, WIN_TITLES } from './text/ru';
+import { NEAR_MISS_WORDS, pick, shareEndless, shareWin, TUTORIAL, VERDICT_WORDS, WIN_TITLES } from './text/ru';
 import { Hud, Screens, type EndlessEntry } from './ui/ui';
 
 const app = document.getElementById('app')!;
@@ -287,6 +287,7 @@ function handle(ev: TickEvents): void {
         () => (mode === 'endless' ? startEndless(0) : startLevel(levelIndex)),
         () => showMenu(),
         run,
+        run && run.crossed > 0 ? shareEndless(run.crossed) : undefined,
       );
     });
   }
@@ -323,6 +324,7 @@ function handle(ev: TickEvents): void {
         () => startLevel(levelIndex + 1),
         () => startLevel(levelIndex),
         () => showMenu(),
+        shareWin(level.name, stars),
       );
     });
   }

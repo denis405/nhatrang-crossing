@@ -131,6 +131,14 @@ export function streetsWord(n: number): string {
   return 'улиц';
 }
 
+export function shareWin(street: string, stars: number): string {
+  return `Перешёл «${street}» в Нячанге на ${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}. Медленно и ровно — байки объезжают сами.`;
+}
+
+export function shareEndless(n: number): string {
+  return `Час пик в Нячанге: перешёл ${n} ${streetsWord(n)} подряд и остался цел. Сможешь больше?`;
+}
+
 export const WIN_TITLES = ['Перешёл!', 'Живой!', 'Ты местный!', 'Как по маслу!'];
 
 export function pick<T>(arr: T[]): T {
