@@ -1,6 +1,8 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // GitHub Pages serves a project site from /<repo>/; the Pages workflow sets BASE_PATH.
+  base: process.env.BASE_PATH || '/',
   server: {
     port: 5173,
     strictPort: true,

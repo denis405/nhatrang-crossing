@@ -4,7 +4,7 @@
  * Resolves to what happened, for the button label.
  */
 export async function share(text: string): Promise<'shared' | 'copied' | 'failed'> {
-  const url = `${location.origin}/`;
+  const url = new URL(import.meta.env.BASE_URL, location.origin).href;
   if (navigator.share) {
     try {
       await navigator.share({ title: document.title, text, url });

@@ -30,6 +30,7 @@ docker compose up -d --build web
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | структура кода, симуляция и `tick()`, константы, рендер, UI, главный цикл, тесты |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | команды, тесты, балансный симулятор, боты, как добавить улицу, ручки сложности |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | **требования к VPS**, первый деплой, HTTPS, обновление и откат, мониторинг |
+| [docs/DEPLOY_PAGES.md](docs/DEPLOY_PAGES.md) | **GitHub Pages**: бесплатный хостинг с HTTPS, что настроено и что сделать при первом запуске |
 | [docs/DEPLOY_PROD.md](docs/DEPLOY_PROD.md) | **боевой сервер**: где живёт игра, как обновить и откатить, обходы блокировок, типовые проблемы |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | что готово, что дальше, известные ограничения |
 
