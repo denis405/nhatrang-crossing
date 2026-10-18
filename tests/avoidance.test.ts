@@ -26,6 +26,16 @@ describe('the local law', () => {
     expect(survival(LEVELS[1], 'rusher')).toBeLessThan(survival(LEVELS[1], 'perfect'));
     expect(survival(LEVELS[2], 'rusher')).toBeLessThan(0.5);
   });
+
+  for (const level of LEVELS.slice(3)) {
+    it(`rushing rarely survives the late streets: ${level.name}`, () => {
+      expect(survival(level, 'rusher')).toBeLessThan(0.5);
+    });
+  }
+
+  it('the second street still forgives a slightly uneven step', () => {
+    expect(survival(LEVELS[1], 'jitter10')).toBeGreaterThanOrEqual(0.9);
+  });
 });
 
 describe('world', () => {

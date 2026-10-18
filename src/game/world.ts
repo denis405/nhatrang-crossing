@@ -64,6 +64,10 @@ const HONK_TIME = 0.9;
 const CAR_BRAKE_TC = 1.2;
 /** ...counting a few px beyond the car's width as "in the lane". */
 const CAR_SEE_PX = 2;
+/** Bikes side by side keep at least this much air between them, px... */
+const SEPARATE_GAP = 0.5;
+/** ...and slide apart no faster than this, px/s. */
+const SEPARATE_RATE = 12;
 
 export function createWorld(level: Level, seed: number, layout = computeLayout(level)): World {
   const w: World = {
@@ -164,6 +168,33 @@ function spawn(w: World, s: StripGeom, layout: Layout): void {
   w.spawnIn[s.index] = range(w.rng, spec.every);
 }
 
+/**
+ * Bikes swerving around the walker can end up on top of each other. Nudge
+ * overlapping pairs apart sideways, half each, staying inside their zones.
+ */
+function separateBikes(w: World): void {
+  const vs = w.vehicles;
+  for (let i = 0; i < vs.length; i++) {
+    const a = vs[i];
+    const ka = KINDS[a.kind];
+    if (!ka.avoids) continue;
+    for (let j = i + 1; j < vs.length; j++) {
+      const b = vs[j];
+      const kb = KINDS[b.kind];
+      if (!kb.avoids || a.dir !== b.dir) continue;
+      if (Math.abs(a.x - b.x) >= (ka.len + kb.len) / 2) continue;
+      const need = (ka.wid + kb.wid) / 2 + SEPARATE_GAP;
+      const dy = b.y - a.y;
+      const overlap = need - Math.abs(dy);
+      if (overlap <= 0) continue;
+      const push = Math.min(overlap / 2, SEPARATE_RATE * DT);
+      const s = dy >= 0 ? 1 : -1;
+      a.y = Math.min(a.maxY, Math.max(a.minY, a.y - s * push));
+      b.y = Math.min(b.maxY, Math.max(b.minY, b.y + s * push));
+    }
+  }
+}
+
 /** Advance the world by one fixed step. `taps` is the number of step presses this tick. */
 export function tick(w: World, level: Level, layout: Layout, taps: number): TickEvents {
   const ev: TickEvents = { step: null, honks: [], nearMisses: [], died: null, won: false };
@@ -243,6 +274,7 @@ export function tick(w: World, level: Level, layout: Layout, taps: number): Tick
     }
   }
   w.vehicles = w.vehicles.filter((v) => v.x > -60 && v.x < WORLD_W + 60);
+  separateBikes(w);
 
   // --- outcome
   for (const v of w.vehicles) {
