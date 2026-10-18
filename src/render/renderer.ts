@@ -231,7 +231,8 @@ export class Renderer {
   private buf: HTMLCanvasElement;
   private bctx: Ctx;
   private bg: HTMLCanvasElement | null = null;
-  private bgFor: string | null = null;
+  /** The level the cached background was drawn for (endless streets share ids across runs). */
+  private bgFor: Level | null = null;
   /** Logical height of the view. */
   h = 320;
   /** CSS px per logical px. */
@@ -287,10 +288,11 @@ export class Renderer {
 
   draw(level: Level, layout: Layout, w: World, insets: Insets, dt: number, time: number): void {
     if (!this.buf.width || !this.buf.height || !this.canvas.width) return; // not laid out yet
-    const key = level.id;
-    if (this.bgFor !== key) {
-      this.bg = buildBackground(level, layout, level.id.length * 977 + 13);
-      this.bgFor = key;
+    if (this.bgFor !== level) {
+      let seed = 13;
+      for (const ch of level.id) seed = Math.imul(seed ^ ch.charCodeAt(0), 16777619) >>> 0;
+      this.bg = buildBackground(level, layout, seed);
+      this.bgFor = level;
       this.camReady = false;
     }
     this.updateCamera(layout, w.ped.y, insets, dt);

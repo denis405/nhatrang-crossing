@@ -1,7 +1,31 @@
 import type { Level } from '../game/levels';
 import type { DeathReason } from '../game/rhythm';
 import type { Progress } from '../storage';
-import { DEATH_JOKES, DEATH_TITLES, GRANDPA_TIPS, HOW_TO, pick, TAGLINE, TITLE } from '../text/ru';
+import {
+  DEATH_JOKES,
+  DEATH_TITLES,
+  ENDLESS_LOCKED,
+  ENDLESS_NAME,
+  ENDLESS_SUBTITLE,
+  GRANDPA_TIPS,
+  HOW_TO,
+  pick,
+  streetsWord,
+  TAGLINE,
+  TITLE,
+} from '../text/ru';
+
+export interface EndlessEntry {
+  open: boolean;
+  best: number;
+  onPlay: () => void;
+}
+
+export interface EndlessRun {
+  crossed: number;
+  best: number;
+  record: boolean;
+}
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string) => {
   const e = document.createElement(tag);
@@ -64,8 +88,8 @@ export class Hud {
     ui.append(this.root);
   }
 
-  show(level: Level, index: number): void {
-    this.title.textContent = `${index + 1}. ${level.name}`;
+  show(level: Level, title: string): void {
+    this.title.textContent = title;
     const a = tempoPos(1 + level.tolerance);
     const b = tempoPos(1 - level.tolerance);
     this.zone.style.left = `${a * 100}%`;
@@ -110,6 +134,14 @@ export class Hud {
     setTimeout(() => p.remove(), 950);
   }
 
+  /** A big word in the middle of the screen: "street crossed" in the endless run. */
+  banner(text: string): void {
+    const b = el('div', 'banner');
+    b.textContent = text;
+    this.ui.append(b);
+    setTimeout(() => b.remove(), 1100);
+  }
+
   /** CSS px of the playfield covered by HUD bars. */
   insets(): { top: number; bottom: number } {
     if (this.root.classList.contains('hidden')) return { top: 0, bottom: 0 };
@@ -146,19 +178,36 @@ export class Screens {
     return b;
   }
 
-  menu(onPlay: () => void, onLevels: () => void): void {
+  menu(onPlay: () => void, onLevels: () => void, endless: EndlessEntry): void {
     const card = el('div', 'card');
     card.append(
       el('h1', '', escape(TITLE)),
       el('p', '', escape(TAGLINE)),
       el('p', 'muted', HOW_TO.map(escape).join('<br>')),
       this.button('Перейти дорогу', onPlay),
-      this.button('Выбрать улицу', onLevels, true),
     );
+    if (endless.open) card.append(this.endlessButton(endless));
+    card.append(this.button('Выбрать улицу', onLevels, true));
     this.mount(card);
   }
 
-  levels(levels: Level[], progress: Progress, onPick: (i: number) => void, onBack: () => void): void {
+  private endlessButton(e: EndlessEntry): HTMLButtonElement {
+    const b = el(
+      'button',
+      'btn endless',
+      `${escape(ENDLESS_NAME)}${e.best ? `<small>рекорд: ${e.best}</small>` : ''}`,
+    ) as HTMLButtonElement;
+    b.addEventListener('click', e.onPlay);
+    return b;
+  }
+
+  levels(
+    levels: Level[],
+    progress: Progress,
+    onPick: (i: number) => void,
+    onBack: () => void,
+    endless: EndlessEntry,
+  ): void {
     const card = el('div', 'card');
     card.append(el('h2', '', 'Улицы Нячанга'));
     const list = el('div', 'levels');
@@ -176,6 +225,16 @@ export class Screens {
       b.addEventListener('click', () => onPick(i));
       list.append(b);
     });
+    const e = el(
+      'button',
+      'level-btn',
+      `<span class="num">${endless.open ? '∞' : '🔒'}</span>
+       <span class="name">${escape(ENDLESS_NAME)}<small>${escape(endless.open ? ENDLESS_SUBTITLE : ENDLESS_LOCKED)}</small></span>
+       <span>${endless.best ? endless.best : ''}</span>`,
+    ) as HTMLButtonElement;
+    e.disabled = !endless.open;
+    e.addEventListener('click', endless.onPlay);
+    list.append(e);
     card.append(list, this.button('Назад', onBack, true));
     this.mount(card);
   }
@@ -185,10 +244,21 @@ export class Screens {
     stats: { accuracy: number; time: number },
     onRetry: () => void,
     onMenu: () => void,
+    run?: EndlessRun,
   ): void {
     const card = el('div', 'card');
+    card.append(el('h1', '', escape(DEATH_TITLES[reason])));
+    if (run) {
+      card.append(
+        el(
+          'div',
+          'stats',
+          `<div><b>${run.crossed}</b><span>${escape(streetsWord(run.crossed))}</span></div>
+           <div><b>${run.best}</b><span>${run.record && run.crossed ? 'новый рекорд!' : 'рекорд'}</span></div>`,
+        ),
+      );
+    }
     card.append(
-      el('h1', '', escape(DEATH_TITLES[reason])),
       el('p', '', escape(pick(DEATH_JOKES[reason]))),
       el('div', 'tip', `<span class="who">👴</span><span><b>Дед Тхань с пластикового стульчика:</b><br>${escape(pick(GRANDPA_TIPS[reason]))}</span>`),
       el(

@@ -109,6 +109,19 @@ export const HONK_KIND_WORDS: Partial<Record<VehicleKind, string>> = {
   car: 'бип!',
 };
 
+export const ENDLESS_NAME = 'Час пик ∞';
+export const ENDLESS_SUBTITLE = 'Улица за улицей, одна жизнь. Сколько перейдёшь?';
+export const ENDLESS_LOCKED = 'Откроется после Чан Фу днём.';
+
+/** "1 улица", "3 улицы", "5 улиц". */
+export function streetsWord(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'улица';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'улицы';
+  return 'улиц';
+}
+
 export const WIN_TITLES = ['Перешёл!', 'Живой!', 'Ты местный!', 'Как по маслу!'];
 
 export function pick<T>(arr: T[]): T {

@@ -1,12 +1,13 @@
 import './style.css';
 import { sfx } from './audio/sfx';
 import { DT, PED_X } from './game/constants';
+import { generateStreet } from './game/endless';
 import { computeLayout, isSafe, LEVELS, type Layout, type Level } from './game/levels';
 import { accuracy, createWorld, pedStrip, tick, type TickEvents, type World } from './game/world';
 import { Renderer } from './render/renderer';
 import { loadProgress, saveProgress } from './storage';
 import { NEAR_MISS_WORDS, pick, VERDICT_WORDS, WIN_TITLES } from './text/ru';
-import { Hud, Screens } from './ui/ui';
+import { Hud, Screens, type EndlessEntry } from './ui/ui';
 
 const app = document.getElementById('app')!;
 const ui = document.getElementById('ui')!;
@@ -16,7 +17,15 @@ sfx.muted = progress.muted;
 
 type Scene = 'menu' | 'play' | 'over';
 let scene: Scene = 'menu';
+/** Story streets one by one, or the endless rush hour. */
+let mode: 'story' | 'endless' = 'story';
 let levelIndex = 0;
+let endlessSeed = 0;
+/** Streets crossed so far in this endless run. */
+let endlessN = 0;
+let endlessRecord = false;
+/** The pending "show the next screen" timer; going to the menu cancels it. */
+let later: ReturnType<typeof setTimeout> | undefined;
 let level: Level = LEVELS[0];
 let layout: Layout = computeLayout(level);
 let world: World = createWorld(level, 1, layout);
@@ -39,9 +48,14 @@ const hud = new Hud(ui, {
 hud.setMuted(progress.muted);
 const screens = new Screens(ui);
 
-function startLevel(i: number): void {
-  levelIndex = i;
-  level = LEVELS[i];
+function after(ms: number, fn: () => void): void {
+  clearTimeout(later);
+  later = setTimeout(fn, ms);
+}
+
+function begin(lv: Level, title: string): void {
+  clearTimeout(later);
+  level = lv;
   layout = computeLayout(level);
   attempt++;
   world = createWorld(level, (Date.now() ^ (attempt * 2654435761)) >>> 0, layout);
@@ -50,23 +64,47 @@ function startLevel(i: number): void {
   tickedFor = -1;
   scene = 'play';
   screens.close();
-  hud.show(level, i);
+  hud.show(level, title);
   hud.setProgress(0);
 }
 
+function startLevel(i: number): void {
+  mode = 'story';
+  levelIndex = i;
+  begin(LEVELS[i], `${i + 1}. ${LEVELS[i].name}`);
+}
+
+function startEndless(n: number): void {
+  mode = 'endless';
+  if (n === 0) {
+    endlessSeed = (Date.now() ^ (attempt * 2246822519)) >>> 0;
+    endlessRecord = false;
+  }
+  endlessN = n;
+  begin(generateStreet(endlessSeed, n), `∞ Улица ${n + 1}`);
+}
+
+/** The endless rush hour opens once the first street with cars is behind. */
+function endlessEntry(): EndlessEntry {
+  const open = progress.unlocked >= 3 || progress.endlessBest > 0;
+  return { open, best: progress.endlessBest, onPlay: () => startEndless(0) };
+}
+
 function showMenu(): void {
+  clearTimeout(later);
   scene = 'menu';
   hud.hide();
   screens.menu(
     () => startLevel(Math.min(progress.unlocked, LEVELS.length - 1)),
     () => showLevels(),
+    endlessEntry(),
   );
 }
 
 function showLevels(): void {
   scene = 'menu';
   hud.hide();
-  screens.levels(LEVELS, progress, (i) => startLevel(i), () => showMenu());
+  screens.levels(LEVELS, progress, (i) => startLevel(i), () => showMenu(), endlessEntry());
 }
 
 function onTap(): void {
@@ -135,12 +173,30 @@ function handle(ev: TickEvents): void {
     renderer.bump();
     navigator.vibrate?.(180);
     const stats = { accuracy: accuracy(world), time: world.t - world.startedAt };
-    setTimeout(() => {
+    const run = mode === 'endless' ? { crossed: endlessN, best: progress.endlessBest, record: endlessRecord } : undefined;
+    after(900, () => {
       hud.hide();
-      screens.death(died.reason, stats, () => startLevel(levelIndex), () => showMenu());
-    }, 900);
+      screens.death(
+        died.reason,
+        stats,
+        () => (mode === 'endless' ? startEndless(0) : startLevel(levelIndex)),
+        () => showMenu(),
+        run,
+      );
+    });
   }
-  if (ev.won) {
+  if (ev.won && mode === 'endless') {
+    scene = 'over';
+    sfx.win();
+    const crossed = endlessN + 1;
+    if (crossed > progress.endlessBest) {
+      progress.endlessBest = crossed;
+      endlessRecord = true;
+      saveProgress(progress);
+    }
+    hud.banner(`Улица ${crossed} ✓`);
+    after(1100, () => startEndless(crossed));
+  } else if (ev.won) {
     scene = 'over';
     sfx.win();
     const a = accuracy(world);
@@ -150,7 +206,7 @@ function handle(ev: TickEvents): void {
     saveProgress(progress);
     const stats = { accuracy: a, time: world.t - world.startedAt, nearMisses: world.nearMisses };
     const hasNext = levelIndex + 1 < LEVELS.length;
-    setTimeout(() => {
+    after(600, () => {
       hud.hide();
       screens.win(
         pick(WIN_TITLES),
@@ -161,7 +217,7 @@ function handle(ev: TickEvents): void {
         () => startLevel(levelIndex),
         () => showMenu(),
       );
-    }, 600);
+    });
   }
 }
 

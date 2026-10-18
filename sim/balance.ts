@@ -3,7 +3,8 @@
  *   docker compose run --rm dev npm run sim [-- seeds]
  */
 import { BOTS, runBot } from '../src/game/bots';
-import { LEVELS } from '../src/game/levels';
+import { generateStreet } from '../src/game/endless';
+import { LEVELS, type Level } from '../src/game/levels';
 
 const seeds = Number(process.argv[2] ?? 60);
 const pad = (s: string, n: number) => s.padEnd(n);
@@ -11,15 +12,21 @@ const pad = (s: string, n: number) => s.padEnd(n);
 console.log(`seeds per cell: ${seeds}\n`);
 console.log(pad('уровень', 26) + Object.values(BOTS).map((b) => pad(b.name, 18)).join(''));
 
-for (const level of LEVELS) {
-  let row = pad(level.name, 26);
+// Story streets, then endless rush hour at a few depths (a new street per seed).
+const rows: { name: string; level: (seed: number) => Level }[] = [
+  ...LEVELS.map((l) => ({ name: l.name, level: () => l })),
+  ...[0, 5, 10, 20].map((n) => ({ name: `∞ улица ${n + 1}`, level: (seed: number) => generateStreet(seed, n) })),
+];
+
+for (const { name, level } of rows) {
+  let row = pad(name, 26);
   const reasons: Record<string, number> = {};
   for (const style of Object.values(BOTS)) {
     let won = 0;
     let time = 0;
     let nm = 0;
     for (let s = 1; s <= seeds; s++) {
-      const r = runBot(level, s * 7919, style);
+      const r = runBot(level(s), s * 7919, style);
       if (r.status === 'won') {
         won++;
         time += r.time;

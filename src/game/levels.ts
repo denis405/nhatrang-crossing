@@ -50,12 +50,12 @@ export interface Level {
 const LANE = 16;
 const CAR_LANE = 18;
 
-const DRIFT = 5;
+export const DRIFT = 5;
 
-const bikes = (dir: 1 | -1, spawn: SpawnSpec): Strip => ({ kind: 'bike', h: LANE, dir, spawn });
-const cars = (dir: 1 | -1, spawn: SpawnSpec): Strip => ({ kind: 'car', h: CAR_LANE, dir, spawn });
-const sidewalk = (h = 28): Strip => ({ kind: 'sidewalk', h });
-const median = (h = 12): Strip => ({ kind: 'median', h });
+export const bikes = (dir: 1 | -1, spawn: SpawnSpec): Strip => ({ kind: 'bike', h: LANE, dir, spawn });
+export const cars = (dir: 1 | -1, spawn: SpawnSpec): Strip => ({ kind: 'car', h: CAR_LANE, dir, spawn });
+export const sidewalk = (h = 28): Strip => ({ kind: 'sidewalk', h });
+export const median = (h = 12): Strip => ({ kind: 'median', h });
 
 export const LEVELS: Level[] = [
   {
