@@ -21,6 +21,13 @@ export interface EndlessEntry {
   onPlay: () => void;
 }
 
+export interface SettingItem {
+  label: string;
+  value: string;
+  /** Applies the change and returns the new value to show. */
+  onClick: () => string;
+}
+
 export interface EndlessRun {
   crossed: number;
   best: number;
@@ -180,7 +187,7 @@ export class Screens {
     return b;
   }
 
-  menu(onPlay: () => void, onLevels: () => void, endless: EndlessEntry): void {
+  menu(onPlay: () => void, onLevels: () => void, endless: EndlessEntry, onSettings: () => void): void {
     const card = el('div', 'card');
     card.append(
       el('h1', '', escape(TITLE)),
@@ -189,7 +196,24 @@ export class Screens {
       this.button('Перейти дорогу', onPlay),
     );
     if (endless.open) card.append(this.endlessButton(endless));
-    card.append(this.button('Выбрать улицу', onLevels, true));
+    card.append(this.button('Выбрать улицу', onLevels, true), this.button('Настройки', onSettings, true));
+    this.mount(card);
+  }
+
+  settings(items: SettingItem[], onBack: () => void): void {
+    const card = el('div', 'card');
+    card.append(el('h2', '', 'Настройки'));
+    const list = el('div', 'levels');
+    for (const it of items) {
+      const b = el(
+        'button',
+        'level-btn setting',
+        `<span class="name">${escape(it.label)}</span><span class="value">${escape(it.value)}</span>`,
+      ) as HTMLButtonElement;
+      b.addEventListener('click', () => (b.querySelector('.value')!.textContent = it.onClick()));
+      list.append(b);
+    }
+    card.append(list, this.button('Назад', onBack, true));
     this.mount(card);
   }
 

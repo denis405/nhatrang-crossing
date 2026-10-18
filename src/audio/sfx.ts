@@ -5,8 +5,14 @@ class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private ambience: GainNode | null = null;
+  private ambienceFilter: BiquadFilterNode | null = null;
+  /** The metronome has its own volume knob. */
+  private metronome: GainNode | null = null;
   private noise: AudioBuffer | null = null;
+  private evening = false;
+  private nextDistant = 0;
   muted = false;
+  metronomeVolume = 1;
 
   /** Must be called from a user gesture (iOS). */
   unlock(): void {
@@ -17,6 +23,9 @@ class Sfx {
       this.master = this.ctx.createGain();
       this.master.gain.value = this.muted ? 0 : 0.8;
       this.master.connect(this.ctx.destination);
+      this.metronome = this.ctx.createGain();
+      this.metronome.gain.value = this.metronomeVolume;
+      this.metronome.connect(this.master);
       this.noise = this.makeNoise();
       this.startAmbience();
     }
@@ -26,6 +35,18 @@ class Sfx {
   setMuted(m: boolean): void {
     this.muted = m;
     if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.8, this.ctx.currentTime, 0.02);
+  }
+
+  /** 0..1, applies to metronome clicks and the pause count-in. */
+  setMetronomeVolume(v: number): void {
+    this.metronomeVolume = v;
+    if (this.metronome && this.ctx) this.metronome.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
+  }
+
+  /** Evening streets sound lower and calmer, with horns far away. */
+  setEvening(on: boolean): void {
+    this.evening = on;
+    if (this.ambienceFilter && this.ctx) this.ambienceFilter.frequency.setTargetAtTime(on ? 190 : 260, this.ctx.currentTime, 0.5);
   }
 
   suspend(): void {
@@ -64,16 +85,35 @@ class Sfx {
     src.start();
     lfo.start();
     this.ambience = g;
+    this.ambienceFilter = lp;
   }
 
   /** 0..1 traffic loudness. */
   setTraffic(level: number): void {
     if (!this.ambience || !this.ctx) return;
-    this.ambience.gain.setTargetAtTime(0.05 + level * 0.12, this.ctx.currentTime, 0.4);
+    const now = this.ctx.currentTime;
+    this.ambience.gain.setTargetAtTime((0.05 + level * 0.12) * (this.evening ? 0.8 : 1), now, 0.4);
+    // Somewhere a few streets away, someone is always honking.
+    if (now >= this.nextDistant) {
+      if (this.nextDistant) {
+        const f = 420 + Math.random() * 260;
+        this.tone(f, 0.07, 'square', 0.012);
+        if (Math.random() < 0.6) this.tone(f, 0.07, 'square', 0.012, 0.11);
+      }
+      this.nextDistant = now + (this.evening ? 2.5 : 4) + Math.random() * 6;
+    }
   }
 
-  private tone(freq: number, dur: number, type: OscillatorType, vol: number, at = 0, slide = 0): void {
-    if (!this.ctx || !this.master) return;
+  private tone(
+    freq: number,
+    dur: number,
+    type: OscillatorType,
+    vol: number,
+    at = 0,
+    slide = 0,
+    out: GainNode | null = this.master,
+  ): void {
+    if (!this.ctx || !out) return;
     const t = this.ctx.currentTime + at;
     const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
@@ -84,7 +124,7 @@ class Sfx {
     g.gain.linearRampToValueAtTime(vol, t + 0.005);
     g.gain.setValueAtTime(vol, t + dur * 0.7);
     g.gain.linearRampToValueAtTime(0, t + dur);
-    o.connect(g).connect(this.master);
+    o.connect(g).connect(out);
     o.start(t);
     o.stop(t + dur + 0.02);
   }
@@ -107,11 +147,17 @@ class Sfx {
   }
 
   step(): void {
-    this.burst(0.05, 1800, 0.12);
+    // Flip-flops never land the same way twice.
+    this.burst(0.04 + Math.random() * 0.02, 1500 + Math.random() * 600, 0.1 + Math.random() * 0.04);
   }
 
   tick(): void {
-    this.tone(1320, 0.03, 'square', 0.035);
+    this.tone(1320, 0.03, 'square', 0.035, 0, 0, this.metronome);
+  }
+
+  /** Pause count-in: the same click, the last one higher. */
+  countIn(last: boolean): void {
+    this.tone(last ? 1760 : 1320, 0.04, 'square', 0.045, 0, 0, this.metronome);
   }
 
   horn(kind: VehicleKind): void {
@@ -146,6 +192,11 @@ class Sfx {
 
   win(): void {
     [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.14, 'square', 0.05, i * 0.1));
+  }
+
+  /** One more street of the rush hour: a short, quiet "made it". */
+  streetDone(): void {
+    [659, 988].forEach((f, i) => this.tone(f, 0.1, 'square', 0.03, i * 0.08));
   }
 }
 

@@ -15,6 +15,14 @@ const ui = document.getElementById('ui')!;
 const renderer = new Renderer(document.getElementById('screen') as HTMLCanvasElement);
 const progress = loadProgress();
 sfx.muted = progress.muted;
+/** Metronome volume per settings step: off, quiet, normal. */
+const METRONOME_VOLUME = [0, 0.45, 1];
+sfx.metronomeVolume = METRONOME_VOLUME[progress.settings.metronome];
+const canVibrate = typeof navigator.vibrate === 'function';
+
+function vibrate(ms: number): void {
+  if (canVibrate && progress.settings.vibrate) navigator.vibrate(ms);
+}
 
 /** `pause` is the pause screen; `countdown` is the beat-in after it, before play resumes. */
 type Scene = 'menu' | 'play' | 'over' | 'pause' | 'countdown';
@@ -61,6 +69,7 @@ function begin(lv: Level, title: string): void {
   clearTimeout(later);
   level = lv;
   layout = computeLayout(level);
+  sfx.setEvening(level.palette === 'evening');
   attempt++;
   world = createWorld(level, (Date.now() ^ (attempt * 2654435761)) >>> 0, layout);
   pendingTaps = 0;
@@ -96,7 +105,7 @@ function resume(): void {
       lastFrame = performance.now();
       return;
     }
-    sfx.tick();
+    sfx.countIn(left === 1);
     hud.pulse();
     hud.banner(String(left));
     left--;
@@ -136,6 +145,55 @@ function showMenu(): void {
     () => startLevel(Math.min(progress.unlocked, LEVELS.length - 1)),
     () => showLevels(),
     endlessEntry(),
+    () => showSettings(),
+  );
+}
+
+function showSettings(): void {
+  const st = progress.settings;
+  const METRONOME_LABELS = ['выкл', 'тихо', 'громко'];
+  screens.settings(
+    [
+      {
+        label: 'Звук',
+        value: progress.muted ? 'выкл' : 'вкл',
+        onClick: () => {
+          progress.muted = !progress.muted;
+          sfx.setMuted(progress.muted);
+          hud.setMuted(progress.muted);
+          saveProgress(progress);
+          return progress.muted ? 'выкл' : 'вкл';
+        },
+      },
+      {
+        label: 'Метроном',
+        value: METRONOME_LABELS[st.metronome],
+        onClick: () => {
+          st.metronome = ((st.metronome + 1) % 3) as 0 | 1 | 2;
+          sfx.unlock();
+          sfx.setMetronomeVolume(METRONOME_VOLUME[st.metronome]);
+          sfx.tick();
+          saveProgress(progress);
+          return METRONOME_LABELS[st.metronome];
+        },
+      },
+      // iOS Safari has no vibration API at all, so don't offer a switch that does nothing.
+      ...(canVibrate
+        ? [
+            {
+              label: 'Вибрация на шаг',
+              value: st.vibrate ? 'вкл' : 'выкл',
+              onClick: () => {
+                st.vibrate = !st.vibrate;
+                vibrate(30);
+                saveProgress(progress);
+                return st.vibrate ? 'вкл' : 'выкл';
+              },
+            },
+          ]
+        : []),
+    ],
+    () => showMenu(),
   );
 }
 
@@ -199,6 +257,7 @@ renderer.resize(app.clientWidth, app.clientHeight);
 function handle(ev: TickEvents): void {
   if (ev.step) {
     sfx.step();
+    vibrate(8);
     const word = VERDICT_WORDS[ev.step];
     const onRoad = !isSafe(pedStrip(world, layout).kind);
     if (word && onRoad) {
@@ -217,7 +276,7 @@ function handle(ev: TickEvents): void {
     scene = 'over';
     sfx.crash();
     renderer.bump();
-    navigator.vibrate?.(180);
+    vibrate(180);
     const stats = { accuracy: accuracy(world), time: world.t - world.startedAt };
     const run = mode === 'endless' ? { crossed: endlessN, best: progress.endlessBest, record: endlessRecord } : undefined;
     after(900, () => {
@@ -233,7 +292,7 @@ function handle(ev: TickEvents): void {
   }
   if (ev.won && mode === 'endless') {
     scene = 'over';
-    sfx.win();
+    sfx.streetDone();
     const crossed = endlessN + 1;
     if (crossed > progress.endlessBest) {
       progress.endlessBest = crossed;
