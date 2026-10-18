@@ -109,6 +109,15 @@ export const HONK_KIND_WORDS: Partial<Record<VehicleKind, string>> = {
   car: 'бип!',
 };
 
+/** Hints of the very first crossing. */
+export const TUTORIAL = {
+  tap: 'Тапни по экрану: это один шаг',
+  rhythm: 'Шагай под щелчок метронома: тап… тап… тап…',
+  bike: 'Байк! Не меняй ритм — он объедет тебя сам',
+  keep: 'Не ускоряйся и не останавливайся',
+  done: 'Вот и весь местный закон!',
+};
+
 export const ENDLESS_NAME = 'Час пик ∞';
 export const ENDLESS_SUBTITLE = 'Улица за улицей, одна жизнь. Сколько перейдёшь?';
 export const ENDLESS_LOCKED = 'Откроется после Чан Фу днём.';

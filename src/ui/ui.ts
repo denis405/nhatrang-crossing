@@ -110,9 +110,10 @@ export class Hud {
     this.marker.style.opacity = ratio === null ? '0.35' : '1';
   }
 
-  setHint(text: string, warn = false): void {
+  setHint(text: string, warn = false, tip = false): void {
     if (this.hint.textContent !== text) this.hint.textContent = text;
     this.hint.classList.toggle('warn', warn);
+    this.hint.classList.toggle('tip', tip);
   }
 
   pulse(): void {
@@ -136,6 +137,7 @@ export class Hud {
 
   /** A big word in the middle of the screen: "street crossed" in the endless run. */
   banner(text: string): void {
+    this.ui.querySelector('.banner')?.remove();
     const b = el('div', 'banner');
     b.textContent = text;
     this.ui.append(b);
@@ -199,6 +201,18 @@ export class Screens {
     ) as HTMLButtonElement;
     b.addEventListener('click', e.onPlay);
     return b;
+  }
+
+  pause(onResume: () => void, onRestart: () => void, onMenu: () => void): void {
+    const card = el('div', 'card');
+    card.append(
+      el('h1', '', 'Пауза'),
+      el('p', 'muted', 'Дорога подождёт. Байки тоже замерли — редкий случай.'),
+      this.button('Продолжить', onResume),
+      this.button('Заново', onRestart, true),
+      this.button('Меню', onMenu, true),
+    );
+    this.mount(card);
   }
 
   levels(

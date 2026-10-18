@@ -121,6 +121,11 @@ body {
   transition: color 0.2s;
 }
 
+.tempo .hint.tip {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .tempo .hint.warn {
   color: var(--warn);
   font-weight: 700;

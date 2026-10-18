@@ -3,10 +3,11 @@ import { sfx } from './audio/sfx';
 import { DT, PED_X } from './game/constants';
 import { generateStreet } from './game/endless';
 import { computeLayout, isSafe, LEVELS, type Layout, type Level } from './game/levels';
+import { frontGap, KINDS } from './game/vehicles';
 import { accuracy, createWorld, pedStrip, tick, type TickEvents, type World } from './game/world';
 import { Renderer } from './render/renderer';
 import { loadProgress, saveProgress } from './storage';
-import { NEAR_MISS_WORDS, pick, VERDICT_WORDS, WIN_TITLES } from './text/ru';
+import { NEAR_MISS_WORDS, pick, TUTORIAL, VERDICT_WORDS, WIN_TITLES } from './text/ru';
 import { Hud, Screens, type EndlessEntry } from './ui/ui';
 
 const app = document.getElementById('app')!;
@@ -15,7 +16,8 @@ const renderer = new Renderer(document.getElementById('screen') as HTMLCanvasEle
 const progress = loadProgress();
 sfx.muted = progress.muted;
 
-type Scene = 'menu' | 'play' | 'over';
+/** `pause` is the pause screen; `countdown` is the beat-in after it, before play resumes. */
+type Scene = 'menu' | 'play' | 'over' | 'pause' | 'countdown';
 let scene: Scene = 'menu';
 /** Story streets one by one, or the endless rush hour. */
 let mode: 'story' | 'endless' = 'story';
@@ -35,6 +37,8 @@ let lastFrame = performance.now();
 let paused = false;
 let tickedFor = -1;
 let attempt = 0;
+/** World time the tutorial's "a bike is coming" tip appeared, -1 before that. */
+let bikeTipAt = -1;
 
 const hud = new Hud(ui, {
   onMute: () => {
@@ -43,7 +47,7 @@ const hud = new Hud(ui, {
     hud.setMuted(progress.muted);
     saveProgress(progress);
   },
-  onMenu: () => showMenu(),
+  onMenu: () => (scene === 'play' || scene === 'countdown' ? pause() : showMenu()),
 });
 hud.setMuted(progress.muted);
 const screens = new Screens(ui);
@@ -63,9 +67,43 @@ function begin(lv: Level, title: string): void {
   acc = 0;
   tickedFor = -1;
   scene = 'play';
+  bikeTipAt = -1;
   screens.close();
   hud.show(level, title);
   hud.setProgress(0);
+}
+
+function pause(): void {
+  if (scene !== 'play' && scene !== 'countdown') return;
+  clearTimeout(later);
+  scene = 'pause';
+  pendingTaps = 0;
+  screens.pause(
+    () => resume(),
+    () => (mode === 'endless' ? startEndless(0) : startLevel(levelIndex)),
+    () => showMenu(),
+  );
+}
+
+/** Three metronome beats in the street's tempo, so the walker picks the rhythm back up. */
+function resume(): void {
+  screens.close();
+  scene = 'countdown';
+  let left = 3;
+  const beat = () => {
+    if (left === 0) {
+      scene = 'play';
+      lastFrame = performance.now();
+      return;
+    }
+    sfx.tick();
+    hud.pulse();
+    hud.banner(String(left));
+    left--;
+    after(level.tempo * 1000, beat);
+    acc = 0;
+  };
+  beat();
 }
 
 function startLevel(i: number): void {
@@ -120,6 +158,11 @@ app.addEventListener('pointerdown', (e) => {
 });
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  if (e.code === 'Escape' || e.code === 'KeyP') {
+    if (scene === 'pause') resume();
+    else pause();
+    return;
+  }
   if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Enter') {
     if (scene === 'play') e.preventDefault();
     onTap();
@@ -139,7 +182,10 @@ document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('visibilitychange', () => {
   paused = document.hidden;
-  if (paused) sfx.suspend();
+  if (paused) {
+    pause();
+    sfx.suspend();
+  }
   else {
     sfx.resume();
     lastFrame = performance.now();
@@ -199,6 +245,8 @@ function handle(ev: TickEvents): void {
   } else if (ev.won) {
     scene = 'over';
     sfx.win();
+    const tutorialDone = inTutorial();
+    if (tutorialDone) progress.tutorialDone = true;
     const a = accuracy(world);
     const stars = a >= 0.9 ? 3 : a >= 0.75 ? 2 : 1;
     progress.stars[level.id] = Math.max(progress.stars[level.id] ?? 0, stars);
@@ -209,7 +257,7 @@ function handle(ev: TickEvents): void {
     after(600, () => {
       hud.hide();
       screens.win(
-        pick(WIN_TITLES),
+        tutorialDone ? TUTORIAL.done : pick(WIN_TITLES),
         stars,
         stats,
         hasNext,
@@ -221,6 +269,27 @@ function handle(ev: TickEvents): void {
   }
 }
 
+function inTutorial(): boolean {
+  return mode === 'story' && levelIndex === 0 && !progress.tutorialDone;
+}
+
+/** First crossing ever: walk the player through the local law, one hint at a time. */
+function tutorialHint(stripIndex: number, safe: boolean): string | null {
+  if (!inTutorial()) return null;
+  if (world.ped.steps === 0) return TUTORIAL.tap;
+  if (stripIndex === 0) return TUTORIAL.rhythm;
+  if (safe) return null;
+  if (bikeTipAt < 0) {
+    const coming = world.vehicles.some((v) => {
+      const gap = frontGap(v);
+      return KINDS[v.kind].avoids && !v.passed && gap > 0 && gap < 50 && Math.abs(v.y - world.ped.y) < 14;
+    });
+    if (coming) bikeTipAt = world.t;
+  }
+  if (bikeTipAt >= 0 && world.t - bikeTipAt < 2.5) return TUTORIAL.bike;
+  return TUTORIAL.keep;
+}
+
 function updateHud(): void {
   const r = world.rhythm;
   const since = world.t - r.lastStep;
@@ -229,21 +298,26 @@ function updateHud(): void {
   const standing = since > level.tempo * 1.6;
   const tol = level.tolerance;
 
+  const tip = tutorialHint(strip.index, safe);
+
   if (standing && safe) {
     hud.setTempo(null);
-    hud.setHint(
-      strip.index === 0
-        ? 'Тапай по экрану в ритм, чтобы идти'
-        : strip.kind === 'median'
-          ? 'Островок. Можно перевести дух'
-          : 'Почти!',
-    );
+    if (tip) hud.setHint(tip, false, true);
+    else
+      hud.setHint(
+        strip.index === 0
+          ? 'Тапай по экрану в ритм, чтобы идти'
+          : strip.kind === 'median'
+            ? 'Островок. Можно перевести дух'
+            : 'Почти!',
+      );
   } else {
     const late = since > Math.max(r.lastInterval, level.tempo * (1 + tol));
     const ratio = late ? since / level.tempo : r.lastInterval / level.tempo;
     hud.setTempo(ratio);
     if (!safe && late) hud.setHint('Не стой посреди дороги!', true);
     else if (!safe && r.lastInterval < level.tempo * (1 - tol)) hud.setHint('Медленнее…', true);
+    else if (tip) hud.setHint(tip, false, true);
     else hud.setHint(safe ? 'Тротуар' : 'Ровно. Так держать', false);
   }
 
