@@ -48,7 +48,7 @@ printf "FROM mirror.gcr.io/library/node:22-alpine\nRUN npm config set -g registr
 
 ### 3. Медленный CPU: тесты-симуляции не укладываются в 5 секунд
 
-Тесты в `tests/avoidance.test.ts` на этом сервере идут ≈ 40 секунд и падают по стандартному таймауту vitest. Поэтому в **серверной копии** `Dockerfile` строка
+Тесты в `tests/avoidance.test.ts` на этом сервере идут от 40 секунд до 2.5 минут (19.10.2026 весь прогон занял ≈ 3 минуты) и падают по стандартному таймауту vitest. Ещё одна беда медленного CPU — `Timeout calling "onTaskUpdate"`: длинные синхронные тесты не дают воркеру vitest ответить на его же RPC. Это лечит `tests/setup.ts` (пауза `setTimeout` после каждого теста), правка уже в репозитории. Поэтому в **серверной копии** `Dockerfile` строка
 
 ```dockerfile
 RUN npm test && npm run build
@@ -118,7 +118,7 @@ ssh root@185.87.51.137 'docker tag nhatrang-crossing:latest nhatrang-crossing:pr
 ssh root@185.87.51.137 'cd /opt/frogger && sed -i "s/RUN npm test && npm run build/RUN npx vitest run --testTimeout=120000 \&\& npm run build/" Dockerfile && docker build --target prod -t nhatrang-crossing:latest .'
 ```
 
-Сборка занимает пару минут: `npm ci`, тесты (≈ 45 с), `tsc`, `vite build`. Если тесты или `tsc` падают, образ не пересобирается, а старый контейнер продолжает работать.
+Сборка занимает 3–5 минут: `npm ci`, тесты (до ≈ 3 мин), `tsc`, `vite build`. Если тесты или `tsc` падают, образ не пересобирается, а старый контейнер продолжает работать.
 
 ### Шаг 4. Перезапустить контейнер
 
