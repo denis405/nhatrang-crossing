@@ -432,6 +432,27 @@ body {
   opacity: 0.8;
 }
 
+.btn.daily {
+  background: #e76f51;
+  color: #fff;
+  box-shadow: 0 4px 0 #a84a32;
+}
+
+.btn.daily small {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.card .grid {
+  margin: 12px 0 4px;
+  font-size: 22px;
+  line-height: 1.25;
+  letter-spacing: 2px;
+  text-align: center;
+}
+
 .btn:active {
   transform: translateY(3px);
   box-shadow: 0 1px 0 #a37a00;

@@ -3,6 +3,7 @@ import type { DeathReason } from '../game/rhythm';
 import { share } from '../share';
 import type { Progress } from '../storage';
 import {
+  DAILY_NAME,
   DEATH_JOKES,
   DEATH_TITLES,
   ENDLESS_LOCKED,
@@ -20,6 +21,31 @@ export interface EndlessEntry {
   open: boolean;
   best: number;
   onPlay: () => void;
+}
+
+export interface DailyEntry {
+  open: boolean;
+  /** Small line under the button: attempt, done, or the day's flavour. */
+  note: string;
+  onPlay: () => void;
+}
+
+/** What the death screen adds during a street of the day. */
+export interface DailyRun {
+  rows: string[];
+  note: string;
+}
+
+export interface DailyResult {
+  won: boolean;
+  stars: number;
+  number: number;
+  street: string;
+  subtitle: string;
+  rows: string[];
+  streak: number;
+  next: string;
+  shareText: string;
 }
 
 export interface SettingItem {
@@ -199,7 +225,13 @@ export class Screens {
     return b;
   }
 
-  menu(onPlay: () => void, onLevels: () => void, endless: EndlessEntry, onSettings: () => void): void {
+  menu(
+    onPlay: () => void,
+    onLevels: () => void,
+    endless: EndlessEntry,
+    onSettings: () => void,
+    daily: DailyEntry,
+  ): void {
     const card = el('div', 'card');
     card.append(
       el('h1', '', escape(TITLE)),
@@ -207,6 +239,7 @@ export class Screens {
       el('p', 'muted', HOW_TO.map(escape).join('<br>')),
       this.button('Перейти дорогу', onPlay),
     );
+    if (daily.open) card.append(this.dailyButton(daily));
     if (endless.open) card.append(this.endlessButton(endless));
     card.append(this.button('Выбрать улицу', onLevels, true), this.button('Настройки', onSettings, true));
     this.mount(card);
@@ -239,15 +272,22 @@ export class Screens {
     return b;
   }
 
-  pause(onResume: () => void, onRestart: () => void, onMenu: () => void): void {
+  private dailyButton(d: DailyEntry): HTMLButtonElement {
+    const b = el('button', 'btn daily', `${escape(DAILY_NAME)}<small>${escape(d.note)}</small>`) as HTMLButtonElement;
+    b.addEventListener('click', d.onPlay);
+    return b;
+  }
+
+  /** `onRestart` is left out where starting over would dodge a lost attempt. */
+  pause(onResume: () => void, onRestart: (() => void) | undefined, onMenu: () => void): void {
     const card = el('div', 'card');
     card.append(
       el('h1', '', 'Пауза'),
       el('p', 'muted', 'Дорога подождёт. Байки тоже замерли — редкий случай.'),
       this.button('Продолжить', onResume),
-      this.button('Заново', onRestart, true),
-      this.button('Меню', onMenu, true),
     );
+    if (onRestart) card.append(this.button('Заново', onRestart, true));
+    card.append(this.button('Меню', onMenu, true));
     this.mount(card);
   }
 
@@ -292,10 +332,11 @@ export class Screens {
   death(
     reason: DeathReason,
     stats: { accuracy: number; time: number },
-    onRetry: () => void,
+    onRetry: (() => void) | undefined,
     onMenu: () => void,
     run?: EndlessRun,
     shareText?: string,
+    daily?: DailyRun,
   ): void {
     const card = el('div', 'card');
     card.append(el('h1', '', escape(DEATH_TITLES[reason])));
@@ -317,10 +358,40 @@ export class Screens {
         'muted',
         `Ровных шагов: ${Math.round(stats.accuracy * 100)}% · ${stats.time.toFixed(1)} с на дороге`,
       ),
-      this.button('Ещё раз', onRetry),
     );
+    if (daily) card.append(this.grid(daily.rows), el('p', 'muted', escape(daily.note)));
+    if (onRetry) card.append(this.button(daily ? 'Следующая попытка' : 'Ещё раз', onRetry));
     if (shareText) card.append(this.shareButton(shareText));
     card.append(this.button('Меню', onMenu, true));
+    this.mount(card);
+  }
+
+  /** Attempts of the street of the day, one emoji row each. */
+  private grid(rows: string[]): HTMLElement {
+    return el('div', 'grid', rows.map(escape).join('<br>'));
+  }
+
+  dailyResult(r: DailyResult, onMenu: () => void): void {
+    const card = el('div', 'card');
+    card.append(
+      el('h1', '', escape(r.won ? 'Перешёл!' : 'Улица победила')),
+      el('p', 'muted', `${escape(DAILY_NAME)} №${r.number} · ${escape(r.street)}<br>${escape(r.subtitle)}`),
+    );
+    if (r.won) {
+      card.append(el('div', 'stars', [0, 1, 2].map((i) => `<span class="${i < r.stars ? '' : 'off'}">⭐</span>`).join('')));
+    }
+    card.append(
+      this.grid(r.rows),
+      el(
+        'div',
+        'stats',
+        `<div><b>${r.won ? r.rows.length : '—'}</b><span>${r.won ? 'с попытки' : 'не перешёл'}</span></div>
+         <div><b>${r.streak}</b><span>дней подряд</span></div>
+         <div><b>${escape(r.next)}</b><span>до новой улицы</span></div>`,
+      ),
+      this.shareButton(r.shareText),
+      this.button('Меню', onMenu, true),
+    );
     this.mount(card);
   }
 

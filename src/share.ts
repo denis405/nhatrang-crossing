@@ -14,7 +14,8 @@ export async function share(text: string): Promise<'shared' | 'copied' | 'failed
       if ((e as Error).name === 'AbortError') return 'failed';
     }
   }
-  const full = `${text} ${url}`;
+  // A multi-line text (the street-of-the-day grid) ends in a newline: the link goes on its own line.
+  const full = text.endsWith('\n') ? `${text}${url}` : `${text} ${url}`;
   try {
     await navigator.clipboard.writeText(full);
     return 'copied';

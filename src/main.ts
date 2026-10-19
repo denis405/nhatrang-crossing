@@ -1,14 +1,37 @@
 import './style.css';
 import { sfx } from './audio/sfx';
-import { DT, PED_X } from './game/constants';
+import { DT, PED_X, STEP } from './game/constants';
+import {
+  DAILY_ATTEMPTS,
+  dailyLevel,
+  dailySeed,
+  dayKey,
+  dayNumber,
+  emptyRow,
+  laneRow,
+  msUntilNextDay,
+  prevDay,
+  trafficLanes,
+} from './game/daily';
 import { generateStreet } from './game/endless';
-import { computeLayout, isSafe, LEVELS, type Layout, type Level } from './game/levels';
+import { computeLayout, isSafe, LEVELS, stripAt, type Layout, type Level } from './game/levels';
 import { frontGap, KINDS } from './game/vehicles';
 import { accuracy, createWorld, pedStrip, tick, type TickEvents, type World } from './game/world';
 import { Renderer } from './render/renderer';
-import { loadProgress, saveProgress } from './storage';
-import { NEAR_MISS_WORDS, pick, shareEndless, shareWin, TUTORIAL, VERDICT_WORDS, WIN_TITLES } from './text/ru';
-import { Hud, Screens, type EndlessEntry } from './ui/ui';
+import { loadProgress, saveProgress, type DailyState } from './storage';
+import {
+  NEAR_MISS_WORDS,
+  pick,
+  shareDaily,
+  shareEndless,
+  shareWin,
+  TUTORIAL,
+  untilClock,
+  untilWords,
+  VERDICT_WORDS,
+  WIN_TITLES,
+} from './text/ru';
+import { Hud, Screens, type DailyEntry, type EndlessEntry } from './ui/ui';
 
 const app = document.getElementById('app')!;
 const ui = document.getElementById('ui')!;
@@ -27,13 +50,17 @@ function vibrate(ms: number): void {
 /** `pause` is the pause screen; `countdown` is the beat-in after it, before play resumes. */
 type Scene = 'menu' | 'play' | 'over' | 'pause' | 'countdown';
 let scene: Scene = 'menu';
-/** Story streets one by one, or the endless rush hour. */
-let mode: 'story' | 'endless' = 'story';
+/** Story streets one by one, the endless rush hour, or the street of the day. */
+let mode: 'story' | 'endless' | 'daily' = 'story';
 let levelIndex = 0;
 let endlessSeed = 0;
 /** Streets crossed so far in this endless run. */
 let endlessN = 0;
 let endlessRecord = false;
+/** The day this street-of-the-day attempt belongs to, its lanes, and lanes with an off-tempo step. */
+let daily: DailyState | null = null;
+let dailyLanes: number[] = [];
+const dailyOff = new Set<number>();
 /** The pending "show the next screen" timer; going to the menu cancels it. */
 let later: ReturnType<typeof setTimeout> | undefined;
 let level: Level = LEVELS[0];
@@ -65,13 +92,13 @@ function after(ms: number, fn: () => void): void {
   later = setTimeout(fn, ms);
 }
 
-function begin(lv: Level, title: string): void {
+function begin(lv: Level, title: string, seed?: number): void {
   clearTimeout(later);
   level = lv;
   layout = computeLayout(level);
   sfx.setEvening(level.palette === 'evening');
   attempt++;
-  world = createWorld(level, (Date.now() ^ (attempt * 2654435761)) >>> 0, layout);
+  world = createWorld(level, seed ?? (Date.now() ^ (attempt * 2654435761)) >>> 0, layout);
   pendingTaps = 0;
   acc = 0;
   tickedFor = -1;
@@ -89,7 +116,7 @@ function pause(): void {
   pendingTaps = 0;
   screens.pause(
     () => resume(),
-    () => (mode === 'endless' ? startEndless(0) : startLevel(levelIndex)),
+    mode === 'daily' ? undefined : () => (mode === 'endless' ? startEndless(0) : startLevel(levelIndex)),
     () => showMenu(),
   );
 }
@@ -131,6 +158,73 @@ function startEndless(n: number): void {
   begin(generateStreet(endlessSeed, n), `∞ Улица ${n + 1}`);
 }
 
+/** Today's street of the day, started fresh when the day has turned over. */
+function today(): DailyState {
+  const day = dayKey();
+  if (progress.daily?.day !== day) progress.daily = { day, rows: [], won: false, stars: 0 };
+  return progress.daily;
+}
+
+const dailyDone = (d: DailyState) => d.won || d.rows.length >= DAILY_ATTEMPTS;
+
+/** The streak still counts if the last street of the day was crossed today or yesterday. */
+function streak(day: string): number {
+  return progress.dailyLastWon === day || progress.dailyLastWon === prevDay(day) ? progress.dailyStreak : 0;
+}
+
+function startDaily(): void {
+  const d = today();
+  if (dailyDone(d)) return showDailyResult(d);
+  mode = 'daily';
+  daily = d;
+  const lv = dailyLevel(d.day);
+  dailyLanes = trafficLanes(lv);
+  dailyOff.clear();
+  // The attempt is spent the moment it starts: walking away halfway doesn't give it back.
+  d.rows.push(emptyRow(dailyLanes));
+  saveProgress(progress);
+  begin(lv, `📅 ${lv.name}`, dailySeed(d.day));
+}
+
+function dailyShareText(d: DailyState): string {
+  return shareDaily(dayNumber(d.day), dailyLevel(d.day).name, d.rows, d.won, d.stars, DAILY_ATTEMPTS);
+}
+
+function showDailyResult(d: DailyState): void {
+  clearTimeout(later);
+  scene = 'menu';
+  hud.hide();
+  const lv = dailyLevel(d.day);
+  screens.dailyResult(
+    {
+      won: d.won,
+      stars: d.stars,
+      number: dayNumber(d.day),
+      street: lv.name,
+      subtitle: lv.subtitle,
+      rows: d.rows,
+      streak: streak(dayKey()),
+      next: untilClock(msUntilNextDay()),
+      shareText: dailyShareText(d),
+    },
+    () => showMenu(),
+  );
+}
+
+/** Open once the first street has taught the local law. */
+function dailyEntry(): DailyEntry {
+  const d = today();
+  const left = DAILY_ATTEMPTS - d.rows.length;
+  const note = d.won
+    ? `✓ перешёл · ${streak(d.day)} дн. подряд`
+    : left <= 0
+      ? `завтра новая улица`
+      : d.rows.length
+        ? `осталось попыток: ${left}`
+        : `№${dayNumber(d.day)} · ${dailyLevel(d.day).subtitle}`;
+  return { open: progress.tutorialDone, note, onPlay: () => startDaily() };
+}
+
 /** The endless rush hour opens once the first street with cars is behind. */
 function endlessEntry(): EndlessEntry {
   const open = progress.unlocked >= 3 || progress.endlessBest > 0;
@@ -146,6 +240,7 @@ function showMenu(): void {
     () => showLevels(),
     endlessEntry(),
     () => showSettings(),
+    dailyEntry(),
   );
 }
 
@@ -264,6 +359,8 @@ function handle(ev: TickEvents): void {
       const p = renderer.toCss(PED_X + 14, world.ped.y - 6);
       hud.pop(word, p.x, p.y, true);
     }
+    // The strip the step was taken from: the walker has already started moving off it.
+    if (mode === 'daily' && onRoad && ev.step !== 'steady') dailyOff.add(stripAt(layout, world.ped.targetY + STEP).index);
   }
   if (ev.honks.length) sfx.horn(ev.honks[0]);
   for (const nm of ev.nearMisses) {
@@ -279,15 +376,29 @@ function handle(ev: TickEvents): void {
     vibrate(180);
     const stats = { accuracy: accuracy(world), time: world.t - world.startedAt };
     const run = mode === 'endless' ? { crossed: endlessN, best: progress.endlessBest, record: endlessRecord } : undefined;
+    const d = mode === 'daily' ? daily : null;
+    if (d) {
+      d.rows[d.rows.length - 1] = laneRow(dailyLanes, dailyOff, pedStrip(world, layout).index);
+      saveProgress(progress);
+    }
+    const out = d !== null && dailyDone(d);
     after(900, () => {
       hud.hide();
       screens.death(
         died.reason,
         stats,
-        () => (mode === 'endless' ? startEndless(0) : startLevel(levelIndex)),
+        out ? undefined : () => (mode === 'endless' ? startEndless(0) : mode === 'daily' ? startDaily() : startLevel(levelIndex)),
         () => showMenu(),
         run,
-        run && run.crossed > 0 ? shareEndless(run.crossed) : undefined,
+        run && run.crossed > 0 ? shareEndless(run.crossed) : d && out ? dailyShareText(d) : undefined,
+        d
+          ? {
+              rows: d.rows,
+              note: out
+                ? `Попытки кончились. Новая улица через ${untilWords(msUntilNextDay())}.`
+                : `Попытка ${d.rows.length} из ${DAILY_ATTEMPTS}. Улица та же, байки те же.`,
+            }
+          : undefined,
       );
     });
   }
@@ -302,6 +413,20 @@ function handle(ev: TickEvents): void {
     }
     hud.banner(`Улица ${crossed} ✓`);
     after(1100, () => startEndless(crossed));
+  } else if (ev.won && mode === 'daily' && daily) {
+    scene = 'over';
+    sfx.win();
+    const d = daily;
+    const a = accuracy(world);
+    d.rows[d.rows.length - 1] = laneRow(dailyLanes, dailyOff, null);
+    d.won = true;
+    d.stars = a >= 0.9 ? 3 : a >= 0.75 ? 2 : 1;
+    if (progress.dailyLastWon !== d.day) {
+      progress.dailyStreak = progress.dailyLastWon === prevDay(d.day) ? progress.dailyStreak + 1 : 1;
+      progress.dailyLastWon = d.day;
+    }
+    saveProgress(progress);
+    after(600, () => showDailyResult(d));
   } else if (ev.won) {
     scene = 'over';
     sfx.win();

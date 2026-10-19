@@ -5,6 +5,14 @@ export interface Settings {
   metronome: 0 | 1 | 2;
 }
 
+/** Today's street of the day: one row of lane cells per attempt. */
+export interface DailyState {
+  day: string;
+  rows: string[];
+  won: boolean;
+  stars: number;
+}
+
 export interface Progress {
   unlocked: number;
   stars: Record<string, number>;
@@ -13,6 +21,10 @@ export interface Progress {
   endlessBest: number;
   tutorialDone: boolean;
   settings: Settings;
+  daily: DailyState | null;
+  /** Streets of the day crossed on consecutive days, and the last such day. */
+  dailyStreak: number;
+  dailyLastWon: string;
 }
 
 const KEY = 'nhatrang-crossing:v1';
@@ -25,6 +37,9 @@ export function loadProgress(): Progress {
     endlessBest: 0,
     tutorialDone: false,
     settings: { vibrate: true, metronome: 2 },
+    daily: null,
+    dailyStreak: 0,
+    dailyLastWon: '',
   };
   try {
     const raw = localStorage.getItem(KEY);
@@ -32,6 +47,7 @@ export function loadProgress(): Progress {
     const p = JSON.parse(raw) as Partial<Progress>;
     const unlocked = typeof p.unlocked === 'number' ? p.unlocked : 0;
     const s = (p.settings ?? {}) as Partial<Settings>;
+    const d = (p.daily ?? {}) as Partial<DailyState>;
     return {
       unlocked,
       stars: p.stars && typeof p.stars === 'object' ? p.stars : {},
@@ -43,6 +59,12 @@ export function loadProgress(): Progress {
         vibrate: typeof s.vibrate === 'boolean' ? s.vibrate : true,
         metronome: s.metronome === 0 || s.metronome === 1 ? s.metronome : 2,
       },
+      daily:
+        typeof d.day === 'string' && Array.isArray(d.rows)
+          ? { day: d.day, rows: d.rows.filter((r) => typeof r === 'string'), won: !!d.won, stars: Number(d.stars) || 0 }
+          : null,
+      dailyStreak: typeof p.dailyStreak === 'number' ? p.dailyStreak : 0,
+      dailyLastWon: typeof p.dailyLastWon === 'string' ? p.dailyLastWon : '',
     };
   } catch {
     return fallback;

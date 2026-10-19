@@ -144,3 +144,50 @@ export const WIN_TITLES = ['Перешёл!', 'Живой!', 'Ты местны�
 export function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
+
+export const DAILY_NAME = 'Улица дня';
+
+/** Real Nha Trang streets the daily one is named after. */
+export const DAILY_STREETS = [
+  'Йерсена',
+  'Ле Лой',
+  'Тхай Нгуен',
+  '23 Октября',
+  'Фам Ван Донг',
+  'Чан Куанг Кхай',
+  'Нгуен Чай',
+  'Хоанг Хоа Тхам',
+  'Ли Ты Чонг',
+  'Бьет Тхы',
+  'Ме Линь',
+  'Нгуен Тхи Минь Кхай',
+];
+
+/** Monday to Sunday: how hard the day's street is. */
+export const DAILY_WEEKDAYS = [
+  'Понедельник: разминка',
+  'Вторник: чуть бодрее',
+  'Среда: середина недели',
+  'Четверг: становится людно',
+  'Пятница: все едут на пляж',
+  'Суббота: туристы проснулись',
+  'Воскресенье: настоящий час пик',
+];
+
+export function shareDaily(n: number, street: string, rows: string[], won: boolean, stars: number, attempts: number): string {
+  const score = won ? `${rows.length}/${attempts} ${'⭐'.repeat(stars)}` : `X/${attempts}`;
+  return `Улица дня №${n} · ${street} · ${score}\n${rows.join('\n')}\n`;
+}
+
+/** "5:12" until the next street, short enough for a stat tile. */
+export function untilClock(ms: number): string {
+  const min = Math.max(1, Math.ceil(ms / 60_000));
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
+}
+
+/** "5 ч 12 мин" until the next street. */
+export function untilWords(ms: number): string {
+  const min = Math.max(1, Math.ceil(ms / 60_000));
+  const h = Math.floor(min / 60);
+  return h ? `${h} ч ${min % 60} мин` : `${min} мин`;
+}
