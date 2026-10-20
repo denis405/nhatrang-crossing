@@ -1,8 +1,9 @@
 import { PED_X, VIEW_W, WORLD_W } from '../game/constants';
 import type { Layout, Level } from '../game/levels';
 import { makeRng, rand, type Rng } from '../game/rng';
+import { RIDE_W, ROAD_L, ROAD_R, LANES, LANE_W, type RideWorld } from '../game/ride';
 import type { World } from '../game/world';
-import { pedSprite, vehicleSprite } from './sprites';
+import { pedSprite, turned, vehicleSprite } from './sprites';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -319,6 +320,69 @@ function buildBackground(level: Level, layout: Layout, seed: number): Background
   return { canvas: c, lights };
 }
 
+/** Height of the repeating piece of the bike street; a multiple of every pattern period in it. */
+const RIDE_TILE = 240;
+
+/** The one-way street of the bike mode, running up the screen; tiles seamlessly along y. */
+function buildRideTile(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = RIDE_W;
+  c.height = RIDE_TILE;
+  const ctx = c.getContext('2d')!;
+  const p = PALETTES.day;
+  const rng = makeRng(77);
+  const H = RIDE_TILE;
+  r(ctx, ROAD_L, 0, ROAD_R - ROAD_L, H, p.asphalt);
+  for (let i = 0; i < ((ROAD_R - ROAD_L) * H) / 14; i++)
+    r(ctx, ROAD_L + Math.floor(rand(rng) * (ROAD_R - ROAD_L)), Math.floor(rand(rng) * H), 1, 1, p.asphaltSpeck[i % 3]);
+  for (let i = 1; i < LANES; i++) {
+    const x = Math.round(ROAD_L + i * LANE_W);
+    for (let y = 2; y < H; y += 12) r(ctx, x, y, 1, 6, p.line);
+  }
+  // Sidewalks on both sides, curbs facing the road, shopfronts beyond.
+  const shop = 8;
+  for (const [x0, w, curbX] of [
+    [shop, ROAD_L - shop, ROAD_L - 2],
+    [ROAD_R, RIDE_W - shop - ROAD_R, ROAD_R],
+  ] as const) {
+    r(ctx, x0, 0, w, H, p.tile);
+    for (let y = 0; y < H; y += 8) r(ctx, x0, y, w, 1, p.grout);
+    for (let row = 0, y = 0; y < H; y += 8, row++)
+      for (let x = x0 + (row % 2 ? 4 : 0); x < x0 + w; x += 8) r(ctx, x, y, 1, 8, p.grout);
+    r(ctx, curbX, 0, 2, H, p.curb);
+    for (let i = 0; i < 5; i++) {
+      const y = 6 + Math.floor(rand(rng) * (H - 14));
+      const x = x0 + 2 + Math.floor(rand(rng) * (w - 8));
+      if (rand(rng) < 0.5) {
+        r(ctx, x, y, 4, 6, '#6b4f3a');
+        r(ctx, x + 1, y - 3, 2, 2, '#e63946');
+        r(ctx, x + 1, y + 7, 2, 2, '#1d4ed8');
+      } else {
+        r(ctx, x, y, 4, 4, '#2d6a4f');
+        r(ctx, x + 1, y + 1, 2, 2, '#52b788');
+      }
+    }
+  }
+  for (const [x0, awnX] of [
+    [0, shop - 3],
+    [RIDE_W - shop, RIDE_W - shop],
+  ] as const) {
+    let y = 0;
+    while (y < H) {
+      const h = Math.min(H - y, 24 + Math.floor(rand(rng) * 18));
+      r(ctx, x0, y, shop, h, SHOP_COLORS[Math.floor(rand(rng) * SHOP_COLORS.length)]);
+      const stripe = SIGN_COLORS[Math.floor(rand(rng) * SIGN_COLORS.length)];
+      for (let i = 0; i < h; i += 4) {
+        r(ctx, awnX, y + i, 3, 2, stripe);
+        r(ctx, awnX, y + i + 2, 3, 2, '#f8f9fa');
+      }
+      r(ctx, x0, y, shop, 1, 'rgba(0,0,0,0.3)');
+      y += h;
+    }
+  }
+  return c;
+}
+
 export interface Insets {
   /** CSS px covered by HUD at the top and bottom. */
   top: number;
@@ -341,6 +405,9 @@ export class Renderer {
   camTop = 0;
   private camReady = false;
   private shake = 0;
+  private rideTile: HTMLCanvasElement | null = null;
+  /** Which kind of scene the camera was last placed for, so switching modes snaps it. */
+  private camFor: 'walk' | 'ride' = 'walk';
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -407,7 +474,14 @@ export class Renderer {
     return { x: (x - VIEW_LEFT) * this.scale, y: (y - this.camTop) * this.scale };
   }
 
+  /** Convert a bike-mode world position to CSS px inside #app. */
+  toCssRide(x: number, y: number): { x: number; y: number } {
+    return { x: x * this.scale, y: (y - this.camTop) * this.scale };
+  }
+
   private updateCamera(layout: Layout, pedY: number, insets: Insets, dt: number): void {
+    if (this.camFor !== 'walk') this.camReady = false;
+    this.camFor = 'walk';
     const top = insets.top / this.scale;
     const avail = this.h - top - insets.bottom / this.scale;
     let target: number;
@@ -492,6 +566,73 @@ export class Renderer {
     }
 
     // present, nearest-neighbour
+    this.present();
+  }
+
+  /** «Ты — байкер»: the street runs up the screen and the camera rides with the bike. */
+  drawRide(w: RideWorld, insets: Insets, dt: number, time: number): void {
+    if (!this.buf.width || !this.buf.height || !this.canvas.width) return;
+    this.rideTile ??= buildRideTile();
+    const top = insets.top / this.scale;
+    const avail = this.h - top - insets.bottom / this.scale;
+    // The bike sits low on the screen so there is room to see what's coming.
+    this.camTop = w.bike.y - (top + avail * 0.76);
+    this.camFor = 'ride';
+    const b = this.bctx;
+    b.imageSmoothingEnabled = false;
+    let sx = 0;
+    let sy = 0;
+    if (this.shake > 0) {
+      this.shake -= dt;
+      sx = Math.round((Math.random() - 0.5) * 4);
+      sy = Math.round((Math.random() - 0.5) * 4);
+    }
+    const cam = Math.round(this.camTop);
+    const off = ((cam % RIDE_TILE) + RIDE_TILE) % RIDE_TILE;
+    for (let y = -off; y < this.h; y += RIDE_TILE) b.drawImage(this.rideTile, sx, y + sy);
+
+    type Thing = { y: number; draw: () => void };
+    const things: Thing[] = [];
+    const put = (spr: HTMLCanvasElement, x: number, y: number) =>
+      b.drawImage(spr, Math.round(x - spr.width / 2) + sx, Math.round(y - spr.height / 2) - cam + sy);
+    for (const p of w.walkers) {
+      const frame = p.mode === 'freeze' ? 0 : p.steps % 2;
+      const spr = turned(pedSprite(frame, false, p.type, p.look), p.dir);
+      things.push({
+        y: p.y,
+        draw: () => {
+          put(spr, p.x, p.y);
+          // camera flash while posing for the sunset
+          if (p.mode === 'freeze' && (time * 1.7) % 1 < 0.12) {
+            const fx = Math.round(p.x + p.dir * 5) + sx;
+            const fy = Math.round(p.y - 3) - cam + sy;
+            r(b, fx - 1, fy, 3, 1, '#ffffff');
+            r(b, fx, fy - 1, 1, 3, '#ffffff');
+          }
+        },
+      });
+    }
+    for (const o of w.npcs) {
+      const spr = turned(vehicleSprite({ kind: o.kind, look: o.look, x: -o.y }), -1);
+      things.push({ y: o.y, draw: () => put(spr, o.x, o.y) });
+    }
+    const bike = w.bike;
+    const me = turned(vehicleSprite({ kind: 'grab', look: 3, x: -bike.y }), -1);
+    things.push({ y: bike.y + 0.01, draw: () => put(me, bike.x, bike.y) });
+    things.sort((a, c) => a.y - c.y);
+    for (const t of things) t.draw();
+
+    if (w.status === 'dead') {
+      for (let i = 0; i < 3; i++) {
+        const a = time * 5 + (i * Math.PI * 2) / 3;
+        b.fillStyle = '#ffe66d';
+        b.fillRect(Math.round(bike.x + Math.cos(a) * 6) + sx, Math.round(bike.y - 10 + Math.sin(a) * 2) - cam + sy, 2, 2);
+      }
+    }
+    this.present();
+  }
+
+  private present(): void {
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.buf, 0, 0, VIEW_W, this.h, 0, 0, this.canvas.width, (this.h * this.scale * this.canvas.width) / this.cssW);

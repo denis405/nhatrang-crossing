@@ -195,13 +195,20 @@ export function vehicleSprite(v: Pick<Vehicle, 'kind' | 'look' | 'x'>): HTMLCanv
   return s;
 }
 
-/** The player: a sunburnt newcomer in a panama hat, seen from above, walking up. */
-function drawPed(frame: number, dead: boolean): HTMLCanvasElement {
+/** How a person on foot looks from above: the player, or someone crossing in front of the player's bike. */
+export type PersonStyle = 'player' | 'tourist' | 'selfie' | 'local' | 'jogger';
+
+const TOURIST_SHIRTS = ['#ff6f3c', '#3a86ff', '#ff4d6d', '#06d6a0', '#ffd166', '#f8f9fa'];
+
+/** A person seen from above, walking up. The player is a sunburnt newcomer in a panama hat. */
+function drawPerson(frame: number, dead: boolean, style: PersonStyle, look: number): HTMLCanvasElement {
   const [c, ctx] = makeCanvas(9, 11);
-  const shirt = '#ff6f3c';
-  const hat = '#f3ead3';
-  const brim = '#dccfae';
-  const shoe = '#3d2c1e';
+  const local = style === 'local';
+  const jogger = style === 'jogger';
+  const shirt =
+    style === 'player' ? '#ff6f3c' : local ? '#7b4b94' : jogger ? '#b5f44a' : TOURIST_SHIRTS[look % TOURIST_SHIRTS.length];
+  const shoe = jogger ? '#f8f9fa' : '#3d2c1e';
+  const skin = style === 'player' || local ? SKIN : TOURIST_SKIN;
   const ox = 1;
   const oy = 1;
   r(ctx, ox + 1, oy + 4, 6, 4, SHADOW);
@@ -211,26 +218,56 @@ function drawPed(frame: number, dead: boolean): HTMLCanvasElement {
     r(ctx, ox + fwd, oy + 0, 1, 2, shoe);
     r(ctx, ox + back, oy + 7, 1, 2, shoe);
     // arms swing opposite to legs
-    r(ctx, ox + (frame === 0 ? 6 : 0), oy + 2, 1, 2, SKIN);
-    r(ctx, ox + (frame === 0 ? 0 : 6), oy + 6, 1, 2, SKIN);
+    r(ctx, ox + (frame === 0 ? 6 : 0), oy + 2, 1, 2, skin);
+    r(ctx, ox + (frame === 0 ? 0 : 6), oy + 6, 1, 2, skin);
   }
   r(ctx, ox + 0, oy + 4, 7, 2, shirt);
   r(ctx, ox + 1, oy + 3, 5, 4, shirt);
-  r(ctx, ox + 1, oy + 3, 5, 3, brim);
-  r(ctx, ox + 2, oy + 2, 3, 5, brim);
-  r(ctx, ox + 2, oy + 3, 3, 3, hat);
-  r(ctx, ox + 2, oy + 4, 3, 1, '#2b2d42'); // hat band
+  if (local) {
+    conicalHat(ctx, ox + 3, oy + 4);
+  } else if (jogger) {
+    r(ctx, ox + 2, oy + 3, 3, 3, '#5c3d2e');
+    r(ctx, ox + 2, oy + 4, 3, 1, '#ef233c'); // headband
+  } else {
+    r(ctx, ox + 1, oy + 3, 5, 3, '#dccfae');
+    r(ctx, ox + 2, oy + 2, 3, 5, '#dccfae');
+    r(ctx, ox + 2, oy + 3, 3, 3, '#f3ead3');
+    r(ctx, ox + 2, oy + 4, 3, 1, '#2b2d42'); // hat band
+  }
+  if (style === 'selfie' && !dead) {
+    // a phone held up at arm's length: the tell that they'll stop for a photo
+    r(ctx, ox + 6, oy + 0, 2, 2, '#1b1b22');
+    r(ctx, ox + 6, oy + 0, 1, 1, '#9bd1ff');
+  }
   return c;
 }
 
 const pedCache = new Map<string, HTMLCanvasElement>();
 
-export function pedSprite(frame: number, dead = false): HTMLCanvasElement {
-  const key = `${frame}:${dead}`;
+export function pedSprite(frame: number, dead = false, style: PersonStyle = 'player', look = 0): HTMLCanvasElement {
+  const variant = style === 'tourist' || style === 'selfie' ? look % TOURIST_SHIRTS.length : 0;
+  const key = `${frame}:${dead}:${style}:${variant}`;
   let s = pedCache.get(key);
   if (!s) {
-    s = drawPed(frame, dead);
+    s = drawPerson(frame, dead, style, variant);
     pedCache.set(key, s);
+  }
+  return s;
+}
+
+const turnCache = new WeakMap<HTMLCanvasElement, Map<number, HTMLCanvasElement>>();
+
+/** A sprite turned by a quarter: 1 clockwise, -1 counterclockwise. Exact on pixels, cached. */
+export function turned(src: HTMLCanvasElement, quarter: 1 | -1): HTMLCanvasElement {
+  let m = turnCache.get(src);
+  if (!m) turnCache.set(src, (m = new Map()));
+  let s = m.get(quarter);
+  if (!s) {
+    const [c, ctx] = makeCanvas(src.height, src.width);
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate((quarter * Math.PI) / 2);
+    ctx.drawImage(src, -src.width / 2, -src.height / 2);
+    m.set(quarter, (s = c));
   }
   return s;
 }

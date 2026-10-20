@@ -1,4 +1,5 @@
 import type { Level } from '../game/levels';
+import type { RideReason } from '../game/ride';
 import type { DeathReason } from '../game/rhythm';
 import { share } from '../share';
 import type { Progress } from '../storage';
@@ -12,6 +13,11 @@ import {
   GRANDPA_TIPS,
   HOW_TO,
   pick,
+  RIDE_DEATH_JOKES,
+  RIDE_DEATH_TITLES,
+  RIDE_NAME,
+  RIDE_SUBTITLE,
+  RIDE_TIPS,
   streetsWord,
   TAGLINE,
   TITLE,
@@ -21,6 +27,21 @@ export interface EndlessEntry {
   open: boolean;
   best: number;
   onPlay: () => void;
+}
+
+export interface RideEntry {
+  open: boolean;
+  /** Longest ride, metres. */
+  best: number;
+  onPlay: () => void;
+}
+
+export interface RideStats {
+  distance: number;
+  best: number;
+  record: boolean;
+  nearMisses: number;
+  time: number;
 }
 
 export interface DailyEntry {
@@ -128,6 +149,13 @@ export class Hud {
     const b = tempoPos(1 - level.tolerance);
     this.zone.style.left = `${a * 100}%`;
     this.zone.style.width = `${(b - a) * 100}%`;
+    this.root.classList.remove('ride', 'hidden');
+  }
+
+  /** The bike mode has no rhythm: the bottom bar only carries a line of text. */
+  showRide(title: string): void {
+    this.title.textContent = title;
+    this.root.classList.add('ride');
     this.root.classList.remove('hidden');
   }
 
@@ -231,6 +259,7 @@ export class Screens {
     endless: EndlessEntry,
     onSettings: () => void,
     daily: DailyEntry,
+    ride: RideEntry,
   ): void {
     const card = el('div', 'card');
     card.append(
@@ -241,6 +270,7 @@ export class Screens {
     );
     if (daily.open) card.append(this.dailyButton(daily));
     if (endless.open) card.append(this.endlessButton(endless));
+    if (ride.open) card.append(this.rideButton(ride));
     card.append(this.button('Выбрать улицу', onLevels, true), this.button('Настройки', onSettings, true));
     this.mount(card);
   }
@@ -267,6 +297,16 @@ export class Screens {
       'button',
       'btn endless',
       `${escape(ENDLESS_NAME)}${e.best ? `<small>рекорд: ${e.best}</small>` : ''}`,
+    ) as HTMLButtonElement;
+    b.addEventListener('click', e.onPlay);
+    return b;
+  }
+
+  private rideButton(e: RideEntry): HTMLButtonElement {
+    const b = el(
+      'button',
+      'btn ride',
+      `${escape(RIDE_NAME)}<small>${escape(e.best ? `рекорд: ${e.best} м` : RIDE_SUBTITLE)}</small>`,
     ) as HTMLButtonElement;
     b.addEventListener('click', e.onPlay);
     return b;
@@ -361,6 +401,27 @@ export class Screens {
     );
     if (daily) card.append(this.grid(daily.rows), el('p', 'muted', escape(daily.note)));
     if (onRetry) card.append(this.button(daily ? 'Следующая попытка' : 'Ещё раз', onRetry));
+    if (shareText) card.append(this.shareButton(shareText));
+    card.append(this.button('Меню', onMenu, true));
+    this.mount(card);
+  }
+
+  rideOver(reason: RideReason, st: RideStats, onRetry: () => void, onMenu: () => void, shareText?: string): void {
+    const card = el('div', 'card');
+    card.append(
+      el('h1', '', escape(RIDE_DEATH_TITLES[reason])),
+      el(
+        'div',
+        'stats',
+        `<div><b>${st.distance}</b><span>метров</span></div>
+         <div><b>${st.best}</b><span>${st.record ? 'новый рекорд!' : 'рекорд'}</span></div>
+         <div><b>${st.nearMisses}</b><span>бип-бип</span></div>`,
+      ),
+      el('p', '', escape(pick(RIDE_DEATH_JOKES[reason]))),
+      el('div', 'tip', `<span class="who">👴</span><span><b>Дед Тхань с пластикового стульчика:</b><br>${escape(pick(RIDE_TIPS[reason]))}</span>`),
+      el('p', 'muted', `${st.time.toFixed(1)} с в седле`),
+      this.button('Ещё раз', onRetry),
+    );
     if (shareText) card.append(this.shareButton(shareText));
     card.append(this.button('Меню', onMenu, true));
     this.mount(card);

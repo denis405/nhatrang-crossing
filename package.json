@@ -9,6 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "sim": "tsx sim/balance.ts",
+    "sim:ride": "tsx sim/ride.ts",
     "typecheck": "tsc --noEmit",
     "icons": "tsx scripts/icons.ts"
   },

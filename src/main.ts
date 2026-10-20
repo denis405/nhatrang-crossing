@@ -15,6 +15,7 @@ import {
 } from './game/daily';
 import { generateStreet } from './game/endless';
 import { computeLayout, isSafe, LEVELS, stripAt, type Layout, type Level } from './game/levels';
+import { createRide, rideDistance, tickRide, type RideEvents, type RideInput, type RideWorld } from './game/ride';
 import { frontGap, KINDS } from './game/vehicles';
 import { accuracy, createWorld, pedStrip, tick, type TickEvents, type World } from './game/world';
 import { Renderer } from './render/renderer';
@@ -22,8 +23,11 @@ import { loadProgress, saveProgress, type DailyState } from './storage';
 import {
   NEAR_MISS_WORDS,
   pick,
+  RIDE_HINT,
+  RIDE_TITLE,
   shareDaily,
   shareEndless,
+  shareRide,
   shareWin,
   TUTORIAL,
   untilClock,
@@ -31,7 +35,7 @@ import {
   VERDICT_WORDS,
   WIN_TITLES,
 } from './text/ru';
-import { Hud, Screens, type DailyEntry, type EndlessEntry } from './ui/ui';
+import { Hud, Screens, type DailyEntry, type EndlessEntry, type RideEntry } from './ui/ui';
 
 const app = document.getElementById('app')!;
 const ui = document.getElementById('ui')!;
@@ -50,8 +54,8 @@ function vibrate(ms: number): void {
 /** `pause` is the pause screen; `countdown` is the beat-in after it, before play resumes. */
 type Scene = 'menu' | 'play' | 'over' | 'pause' | 'countdown';
 let scene: Scene = 'menu';
-/** Story streets one by one, the endless rush hour, or the street of the day. */
-let mode: 'story' | 'endless' | 'daily' = 'story';
+/** Story streets one by one, the endless rush hour, the street of the day, or riding the bike yourself. */
+let mode: 'story' | 'endless' | 'daily' | 'ride' = 'story';
 let levelIndex = 0;
 let endlessSeed = 0;
 /** Streets crossed so far in this endless run. */
@@ -74,6 +78,12 @@ let tickedFor = -1;
 let attempt = 0;
 /** World time the tutorial's "a bike is coming" tip appeared, -1 before that. */
 let bikeTipAt = -1;
+/** «Ты — байкер»: its own world, and where the finger or the arrow keys steer. */
+let ride: RideWorld = createRide(1);
+let rideRecord = false;
+const rideInput: RideInput = { targetX: null, push: 0 };
+let steerPointer: number | null = null;
+const keysHeld = { left: false, right: false };
 
 const hud = new Hud(ui, {
   onMute: () => {
@@ -116,7 +126,9 @@ function pause(): void {
   pendingTaps = 0;
   screens.pause(
     () => resume(),
-    mode === 'daily' ? undefined : () => (mode === 'endless' ? startEndless(0) : startLevel(levelIndex)),
+    mode === 'daily'
+      ? undefined
+      : () => (mode === 'ride' ? startRide() : mode === 'endless' ? startEndless(0) : startLevel(levelIndex)),
     () => showMenu(),
   );
 }
@@ -156,6 +168,20 @@ function startEndless(n: number): void {
   }
   endlessN = n;
   begin(generateStreet(endlessSeed, n), `∞ Улица ${n + 1}`);
+}
+
+function startRide(): void {
+  clearTimeout(later);
+  mode = 'ride';
+  attempt++;
+  ride = createRide((Date.now() ^ (attempt * 2654435761)) >>> 0);
+  rideRecord = false;
+  rideInput.targetX = null;
+  acc = 0;
+  scene = 'play';
+  sfx.setEvening(false);
+  screens.close();
+  hud.showRide(RIDE_TITLE);
 }
 
 /** Today's street of the day, started fresh when the day has turned over. */
@@ -231,6 +257,11 @@ function endlessEntry(): EndlessEntry {
   return { open, best: progress.endlessBest, onPlay: () => startEndless(0) };
 }
 
+/** Riding opens together with the street of the day, once the local law has been learnt on foot. */
+function rideEntry(): RideEntry {
+  return { open: progress.tutorialDone, best: progress.rideBest, onPlay: () => startRide() };
+}
+
 function showMenu(): void {
   clearTimeout(later);
   scene = 'menu';
@@ -241,6 +272,7 @@ function showMenu(): void {
     endlessEntry(),
     () => showSettings(),
     dailyEntry(),
+    rideEntry(),
   );
 }
 
@@ -303,13 +335,48 @@ function onTap(): void {
   if (scene === 'play' && world.status === 'playing' && !paused) pendingTaps++;
 }
 
-// ---- input: the whole screen is the button
+/** World x under the pointer in the bike mode (the street is exactly as wide as the view). */
+function rideX(e: PointerEvent): number {
+  return (e.clientX - app.getBoundingClientRect().left) / renderer.scale;
+}
+
+// ---- input: the whole screen is the button (or, on the bike, the handlebar)
 app.addEventListener('pointerdown', (e) => {
   sfx.unlock();
   if ((e.target as Element).closest('button, .screen')) return;
+  if (mode === 'ride') {
+    steerPointer = e.pointerId;
+    rideInput.targetX = rideX(e);
+    return;
+  }
   onTap();
 });
+app.addEventListener('pointermove', (e) => {
+  if (mode === 'ride' && e.pointerId === steerPointer) rideInput.targetX = rideX(e);
+});
+const releaseSteer = (e: PointerEvent) => {
+  if (e.pointerId !== steerPointer) return;
+  steerPointer = null;
+  rideInput.targetX = null;
+};
+app.addEventListener('pointerup', releaseSteer);
+app.addEventListener('pointercancel', releaseSteer);
+const steerKey = (code: string): 'left' | 'right' | null =>
+  code === 'ArrowLeft' || code === 'KeyA' ? 'left' : code === 'ArrowRight' || code === 'KeyD' ? 'right' : null;
+const updatePush = () => (rideInput.push = keysHeld.left === keysHeld.right ? 0 : keysHeld.left ? -1 : 1);
+window.addEventListener('keyup', (e) => {
+  const k = steerKey(e.code);
+  if (k) {
+    keysHeld[k] = false;
+    updatePush();
+  }
+});
 window.addEventListener('keydown', (e) => {
+  const k = steerKey(e.code);
+  if (k) {
+    keysHeld[k] = true;
+    updatePush();
+  }
   if (e.repeat) return;
   if (e.code === 'Escape' || e.code === 'KeyP') {
     if (scene === 'pause') resume();
@@ -455,6 +522,36 @@ function handle(ev: TickEvents): void {
   }
 }
 
+function handleRide(ev: RideEvents): void {
+  for (const nm of ev.nearMisses) {
+    sfx.nearMiss();
+    const p = renderer.toCssRide(nm.x, nm.y - 10);
+    hud.pop(pick(NEAR_MISS_WORDS), p.x, p.y);
+  }
+  if (!ev.died) return;
+  const died = ev.died;
+  scene = 'over';
+  sfx.crash();
+  renderer.bump();
+  vibrate(180);
+  const distance = rideDistance(ride);
+  if (distance > progress.rideBest) {
+    progress.rideBest = distance;
+    rideRecord = true;
+    saveProgress(progress);
+  }
+  const stats = { distance, best: progress.rideBest, record: rideRecord, nearMisses: ride.nearMisses, time: ride.t };
+  after(900, () => {
+    hud.hide();
+    screens.rideOver(died.reason, stats, () => startRide(), () => showMenu(), distance > 0 ? shareRide(distance) : undefined);
+  });
+}
+
+function updateRideHud(): void {
+  hud.setHint(ride.t < 4 ? RIDE_HINT : `${rideDistance(ride)} м · рекорд ${Math.max(progress.rideBest, rideDistance(ride))} м`, false, ride.t < 4);
+  sfx.setTraffic(Math.min(1, ride.npcs.length / 8));
+}
+
 function inTutorial(): boolean {
   return mode === 'story' && levelIndex === 0 && !progress.tutorialDone;
 }
@@ -525,7 +622,15 @@ function frame(now: number): void {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
   if (!paused) {
-    if (scene === 'play') {
+    if (scene === 'play' && mode === 'ride') {
+      acc += dt;
+      while (acc >= DT) {
+        handleRide(tickRide(ride, rideInput));
+        acc -= DT;
+        if (ride.status !== 'playing') break;
+      }
+      if (ride.status === 'playing') updateRideHud();
+    } else if (scene === 'play') {
       acc += dt;
       while (acc >= DT) {
         const taps = pendingTaps;
@@ -543,7 +648,8 @@ function frame(now: number): void {
         acc -= DT;
       }
     }
-    renderer.draw(level, layout, world, hud.insets(), dt, now / 1000);
+    if (mode === 'ride' && scene !== 'menu') renderer.drawRide(ride, hud.insets(), dt, now / 1000);
+    else renderer.draw(level, layout, world, hud.insets(), dt, now / 1000);
   }
 }
 

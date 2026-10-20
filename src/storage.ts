@@ -25,6 +25,8 @@ export interface Progress {
   /** Streets of the day crossed on consecutive days, and the last such day. */
   dailyStreak: number;
   dailyLastWon: string;
+  /** Longest ride in «Ты — байкер», metres. */
+  rideBest: number;
 }
 
 const KEY = 'nhatrang-crossing:v1';
@@ -40,6 +42,7 @@ export function loadProgress(): Progress {
     daily: null,
     dailyStreak: 0,
     dailyLastWon: '',
+    rideBest: 0,
   };
   try {
     const raw = localStorage.getItem(KEY);
@@ -65,6 +68,7 @@ export function loadProgress(): Progress {
           : null,
       dailyStreak: typeof p.dailyStreak === 'number' ? p.dailyStreak : 0,
       dailyLastWon: typeof p.dailyLastWon === 'string' ? p.dailyLastWon : '',
+      rideBest: typeof p.rideBest === 'number' ? p.rideBest : 0,
     };
   } catch {
     return fallback;

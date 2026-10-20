@@ -246,6 +246,19 @@ body {
   background: var(--accent);
 }
 
+/* The bike mode has no rhythm and no finish line: just a line of text at the bottom. */
+.hud.ride .tempo .bar,
+.hud.ride .tempo .labels,
+.hud.ride .progress {
+  display: none;
+}
+
+.hud.ride .tempo .hint {
+  margin-bottom: 0;
+  font-size: 15px;
+  color: var(--ink);
+}
+
 /* ---------- floating words ---------- */
 
 .pop {
@@ -439,6 +452,19 @@ body {
 }
 
 .btn.daily small {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.btn.ride {
+  background: #2f9e44;
+  color: #fff;
+  box-shadow: 0 4px 0 #1f6f2f;
+}
+
+.btn.ride small {
   display: block;
   font-size: 11px;
   font-weight: 600;
